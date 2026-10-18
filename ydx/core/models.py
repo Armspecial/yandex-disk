@@ -124,6 +124,7 @@ class TransferTask:
     remote_path: str = ""           # 'disk:/...'
     size: int = 0
     transferred: int = 0
-    state: str = "queued"           # queued|running|paused|done|error|cancelled
+    state: str = "queued"           # queued|running|paused|done|error|conflict|cancelled
     error: str | None = None
+    overwrite: bool = False
     resource: Resource | None = None  # источник (для download)

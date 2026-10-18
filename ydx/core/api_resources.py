@@ -195,8 +195,15 @@ class ResourcesApi:
             return Operation(href=body["href"])
         return None
 
-    # --- превью/загрузка href (см. api_transfers) ------------------------------
+    # --- превью/загрузка href ---------------------------------------------------
 
     def download_href(self, path: str) -> str:
         d = self.api.get("/resources/download", path=path)
+        return d["href"]
+
+    def upload_href(self, path: str, overwrite: bool = False) -> str:
+        """href живёт 30 минут; PUT байтов — строго без авторизации."""
+        d = self.api.get(
+            "/resources/upload", path=path, overwrite="true" if overwrite else None
+        )
         return d["href"]
