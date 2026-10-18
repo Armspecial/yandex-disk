@@ -26,9 +26,29 @@ def main(argv: list[str] | None = None) -> int:
     if ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(ICON_PATH)))
 
-    # Импорт внутри main: модули UI тянут ресурсы, зависящие от QApplication.
+    # Сервисы и окно импортируются здесь — после создания QApplication.
+    from ydx.services import i18n
+    from ydx.services.accounts import AccountManager
+    from ydx.services.settings import AppSettings
+    from ydx.services.token_store import TokenStore
     from ydx.ui.main_window import MainWindow
+    from ydx.ui.theme import apply_theme
 
-    win = MainWindow()
+    settings = AppSettings()
+    i18n.load(settings.language)
+    apply_theme(app, settings.theme)
+
+    store = TokenStore()
+    accounts = AccountManager(settings, store)
+    accounts.start()
+
+    win = MainWindow(settings, accounts)
+    win.sidebar.set_secure(store.secure)
     win.show()
+
+    if accounts.active is None:
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(100, win.show_login)
+
     return app.exec()

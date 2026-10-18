@@ -1,0 +1,226 @@
+/* Светлая тема — стиль веб-интерфейса Яндекс.Диска */
+
+* {
+    font-family: "Inter", "Ubuntu", "DejaVu Sans", sans-serif;
+    font-size: 13px;
+}
+
+QWidget {
+    background: #FFFFFF;
+    color: #21201F;
+}
+
+QMainWindow, #centralWrap { background: #FFFFFF; }
+
+/* --- Сайдбар --------------------------------------------------------------- */
+#sidebar {
+    background: #F7F7F8;
+    border-right: 1px solid #EBEBEC;
+}
+#sidebarTitle {
+    font-size: 11px;
+    font-weight: 600;
+    color: #8A8D94;
+    padding: 6px 16px 2px 16px;
+    background: transparent;
+}
+QPushButton#navBtn {
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    padding: 8px 12px;
+    text-align: left;
+    color: #3C3E46;
+    font-size: 14px;
+}
+QPushButton#navBtn:hover { background: rgba(0, 0, 0, 0.05); }
+QPushButton#navBtn:checked {
+    background: rgba(0, 0, 0, 0.08);
+    font-weight: 600;
+}
+#accountBtn {
+    background: transparent;
+    border: none;
+    border-radius: 10px;
+    padding: 6px;
+    text-align: left;
+}
+#accountBtn:hover { background: rgba(0, 0, 0, 0.05); }
+#accountName {
+    font-size: 14px;
+    font-weight: 600;
+    background: transparent;
+}
+#quotaLabel, #quotaFree {
+    background: transparent;
+    color: #6E7178;
+    font-size: 12px;
+}
+#securityWarning {
+    background: transparent;
+    color: #B8860B;
+    font-size: 11px;
+}
+
+/* --- Кнопки ------------------------------------------------------------------ */
+QPushButton {
+    background: #EFEFF1;
+    border: none;
+    border-radius: 9px;
+    padding: 8px 16px;
+    color: #21201F;
+}
+QPushButton:hover { background: #E4E4E7; }
+QPushButton:pressed { background: #D9D9DD; }
+QPushButton:disabled { color: #A0A2A8; }
+QPushButton[class="primary"] {
+    background: #FFCC00;
+    color: #1A1A1A;
+    font-weight: 600;
+}
+QPushButton[class="primary"]:hover { background: #FFDB4D; }
+QPushButton[class="primary"]:disabled { background: #F2E7BD; color: #B9B29A; }
+QPushButton[class="danger"] { color: #FC3F1D; }
+QPushButton[class="flat"] { background: transparent; }
+QPushButton[class="flat"]:hover { background: rgba(0,0,0,0.05); }
+QPushButton[class="icon"] {
+    background: transparent;
+    border-radius: 8px;
+    padding: 6px;
+}
+QPushButton[class="icon"]:hover { background: rgba(0,0,0,0.06); }
+QPushButton[class="icon"]:checked { background: rgba(0,0,0,0.08); }
+
+/* --- Поля ввода ---------------------------------------------------------------- */
+QLineEdit, QTextEdit, QPlainTextEdit, QComboBox, QSpinBox {
+    background: #FFFFFF;
+    border: 1px solid #DCDDE0;
+    border-radius: 9px;
+    padding: 7px 11px;
+    selection-background-color: #FFCC00;
+    selection-color: #1A1A1A;
+}
+QLineEdit:focus, QTextEdit:focus, QComboBox:focus, QSpinBox:focus { border-color: #FFCC00; }
+QLineEdit:disabled, QComboBox:disabled { background: #F4F4F5; color: #A0A2A8; }
+
+QComboBox::drop-down { border: none; width: 24px; }
+QComboBox QAbstractItemView {
+    background: #FFFFFF;
+    border: 1px solid #E8E8EA;
+    border-radius: 10px;
+    selection-background-color: #F3F3F4;
+    outline: none;
+}
+
+/* --- Прогресс (квота, передачи) --------------------------------------------------- */
+QProgressBar {
+    background: #E6E6E8;
+    border: none;
+    border-radius: 3px;
+    min-height: 6px;
+    max-height: 6px;
+    text-align: center;
+}
+QProgressBar::chunk { background: #FFCC00; border-radius: 3px; }
+QProgressBar[class="danger"]::chunk { background: #FC3F1D; }
+
+/* --- Меню и тултипы --------------------------------------------------------------- */
+QMenu {
+    background: #FFFFFF;
+    border: 1px solid #E8E8EA;
+    border-radius: 12px;
+    padding: 6px;
+}
+QMenu::item { padding: 7px 26px 7px 14px; border-radius: 8px; }
+QMenu::item:selected { background: #F3F3F4; }
+QMenu::separator { height: 1px; background: #EFEFF1; margin: 5px 8px; }
+QToolTip {
+    background: #2E2E33;
+    color: #FFFFFF;
+    border: none;
+    padding: 6px 10px;
+    border-radius: 6px;
+}
+
+/* --- Списки/таблицы ----------------------------------------------------------------- */
+QListView, QTreeView, QTableView {
+    background: #FFFFFF;
+    border: none;
+    outline: none;
+}
+QListView::item { border-radius: 8px; }
+QHeaderView::section {
+    background: #FFFFFF;
+    border: none;
+    border-bottom: 1px solid #EFEFF1;
+    padding: 8px 10px;
+    font-weight: 600;
+    color: #6E7178;
+}
+
+/* --- Скроллбары ---------------------------------------------------------------------- */
+QScrollBar:vertical { background: transparent; width: 10px; margin: 2px; }
+QScrollBar::handle:vertical {
+    background: #D6D6D9;
+    border-radius: 5px;
+    min-height: 30px;
+}
+QScrollBar::handle:vertical:hover { background: #C4C4C8; }
+QScrollBar:horizontal { background: transparent; height: 10px; margin: 2px; }
+QScrollBar::handle:horizontal { background: #D6D6D9; border-radius: 5px; min-width: 30px; }
+QScrollBar::add-line, QScrollBar::sub-line { width: 0; height: 0; }
+QScrollBar::add-page, QScrollBar::sub-page { background: transparent; }
+
+/* --- Диалоги ------------------------------------------------------------------------ */
+QDialog { background: #FFFFFF; }
+#dialogTitle { font-size: 18px; font-weight: 700; }
+#dialogHint { color: #6E7178; }
+#deviceCode {
+    font-size: 32px;
+    font-weight: 700;
+    letter-spacing: 6px;
+    color: #21201F;
+    background: #F7F7F8;
+    border: 1px solid #EBEBEC;
+    border-radius: 12px;
+    padding: 18px;
+}
+
+/* --- Хлебные крошки -------------------------------------------------------------------- */
+#breadcrumbs { background: transparent; }
+QPushButton#crumb {
+    background: transparent;
+    border: none;
+    padding: 4px 6px;
+    color: #6E7178;
+}
+QPushButton#crumb:hover { color: #21201F; text-decoration: underline; }
+#crumbLast { font-weight: 600; }
+
+/* --- Панель статуса/ошибок --------------------------------------------------------------- */
+#statusChip {
+    border-radius: 10px;
+    padding: 4px 12px;
+    background: #F3F3F4;
+    color: #6E7178;
+}
+#errorBanner {
+    background: #FDEBE7;
+    color: #A62B12;
+    border-radius: 10px;
+    padding: 10px 14px;
+}
+
+/* --- Строки способов входа ---------------------------------------------------- */
+QFrame#methodRow {
+    background: transparent;
+    border: 1px solid #EBEBEC;
+    border-radius: 12px;
+}
+QFrame#methodRow:hover { background: rgba(0,0,0,0.04); border-color: #FFCC00; }
+#methodTitle { background: transparent; font-size: 15px; font-weight: 600; color: #21201F; }
+#methodHint { background: transparent; color: #6E7178; }
+QFrame#methodRow QLabel { background: transparent; }
+
+/* --- Прозрачность контейнеров-обёрток -------------------------------------------- */
+#sidebar QWidget, QFrame#methodRow QWidget, #accountBtn QWidget { background: transparent; }
