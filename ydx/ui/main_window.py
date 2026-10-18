@@ -55,6 +55,10 @@ class MainWindow(QMainWindow):
         layout.addWidget(self.stack, 1)
         self.setCentralWidget(central)
 
+        # сервис превью (общий для разделов)
+        from ydx.services.thumbs import ThumbService
+        self.thumbs = ThumbService(lambda: self._accounts.api)
+
         # --- связи ---
         self.sidebar.section_changed.connect(self._show_section)
         self.sidebar.settings_requested.connect(self._open_settings)
@@ -64,6 +68,12 @@ class MainWindow(QMainWindow):
         accounts.active_changed.connect(self._on_active_changed)
         accounts.quota_updated.connect(self.sidebar.set_quota)
         accounts.auth_failed.connect(self._on_auth_failed)
+
+        # реальные разделы (по мере готовности; M2 — файлы)
+        from ydx.ui.views.files_page import FilesPage
+
+        self.files_page = FilesPage(settings, accounts, self.thumbs)
+        self.replace_page("files", self.files_page)
 
         self.sidebar.set_secure(True)   # заменяется реальным флагом в app.py
         self.sidebar.set_section("files")
