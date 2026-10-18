@@ -1,0 +1,13 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128">
+  <!-- Стилизованный значок приложения: жёлтая «плашка» и белая стрелка вверх -->
+  <defs>
+    <linearGradient id="g" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#FFDB4D"/>
+      <stop offset="1" stop-color="#FFCC00"/>
+    </linearGradient>
+  </defs>
+  <rect x="4" y="4" width="120" height="120" rx="28" fill="url(#g)"/>
+  <circle cx="64" cy="64" r="38" fill="none" stroke="#FFFFFF" stroke-width="6" opacity="0.55"/>
+  <path d="M64 34 L90 66 H74 V94 H54 V66 H38 Z" fill="#FFFFFF"/>
+  <path d="M64 34 L90 66 H74 V94 H54 V66 H38 Z" fill="none" stroke="#F5B800" stroke-width="2" stroke-linejoin="round"/>
+</svg>
