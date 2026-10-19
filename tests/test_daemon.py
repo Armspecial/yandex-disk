@@ -1,0 +1,91 @@
+"""Парсер вывода yandex-disk status + конфиг config.cfg."""
+
+from __future__ import annotations
+
+from pathlib import Path
+
+from ydx.core.daemon_config import (
+    exclude_dirs_str,
+    parse_exclude_dirs,
+    read_config,
+    write_config,
+)
+from ydx.core.daemon_status import looks_like_paywall, parse_size, parse_status
+
+
+def test_parse_size_units():
+    assert parse_size("1024") == 1024
+    assert parse_size("1.5 KB") == 1536
+    assert parse_size("2 MB") == 2 * 1024**2
+    assert parse_size("1,5 GB") == int(1.5 * 1024**3)
+    assert parse_size("мусор") == 0
+
+
+def test_status_empty_is_stopped():
+    assert parse_status("").state == "stopped"
+    assert parse_status("\n \n").state == "stopped"
+
+
+def test_status_idle_with_totals():
+    raw = (
+        "Synchronization core status: idle\n"
+        "Total: 26843545600\n"
+        "Used: 12884901888\n"
+        "Free: 13958643712\n"
+        "Trash size: 1.5 GB\n"
+    )
+    s = parse_status(raw)
+    assert s.state == "idle"
+    assert s.total == 26843545600
+    assert s.used == 12884901888
+    assert s.free == 13958643712
+    assert s.trash == int(1.5 * 1024**3)
+
+
+def test_status_busy_last_items():
+    raw = (
+        "Synchronization core status: busy\n"
+        "Sync progress: 45% (10.5 MB/s)\n"
+        "Last synchronized items:\n"
+        "  file: 'отчёт (2).pdf'\n"
+        "  dir: 'Фото 2026'\n"
+    )
+    s = parse_status(raw)
+    assert s.state == "busy"
+    assert "45%" in s.progress
+    assert s.last_items == ["отчёт (2).pdf", "Фото 2026"]
+
+
+def test_status_no_internet_and_error_paywall():
+    s = parse_status("Synchronization core status: no internet access")
+    assert s.state == "no-internet"
+    err = parse_status("Error: sync requires Yandex 360 subscription")
+    assert err.state == "error"
+    assert looks_like_paywall(err)
+    plain = parse_status("Error: disk path not found")
+    assert not looks_like_paywall(plain)
+
+
+def test_config_roundtrip_preserves_foreign(tmp_path: Path):
+    cfg = tmp_path / "config.cfg"
+    cfg.write_text(
+        "# мой комментарий\n"
+        "dir=\"/old/path\"\n"
+        "unknown-key=42\n"
+        "read-only=false\n",
+        "utf-8",
+    )
+    write_config(cfg, {"dir": "/new/path", "exclude-dirs": "a,b"})
+    text = cfg.read_text("utf-8")
+    assert "# мой комментарий" in text
+    assert "unknown-key=42" in text
+    data = read_config(cfg)
+    assert data["dir"] == "/new/path"
+    assert data["exclude-dirs"] == "a,b"
+    assert data["unknown-key"] == "42"
+    assert data["read-only"] == "false"
+
+
+def test_exclude_dirs_helpers():
+    assert exclude_dirs_str(["a", " b/ ", "", "/c/"]) == "a,b,c"
+    assert parse_exclude_dirs("a, b ,,c") == ["a", "b", "c"]

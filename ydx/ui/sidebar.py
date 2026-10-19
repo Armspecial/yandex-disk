@@ -35,6 +35,7 @@ class Sidebar(QFrame):
     section_changed = Signal(str)
     account_requested = Signal(QPoint)   # глобальная позиция — открыть меню аккаунта
     settings_requested = Signal()
+    sync_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -112,6 +113,14 @@ class Sidebar(QFrame):
 
         root.addSpacing(6)
 
+        # --- синхронизация (демонд; скрывается, если не установлен) ---
+        self.sync_btn = QPushButton()
+        self.sync_btn.setObjectName("navBtn")
+        self.sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sync_btn.setIcon(icon("refresh"))
+        self.sync_btn.clicked.connect(self.sync_requested.emit)
+        root.addWidget(self.sync_btn)
+
         # --- настройки ---
         self.settings_btn = QPushButton()
         self.settings_btn.setObjectName("navBtn")
@@ -171,6 +180,7 @@ class Sidebar(QFrame):
         for key, _ic, text_key in SECTIONS:
             self._buttons[key].setText(i18n.tr(text_key))
         self.settings_btn.setText(i18n.tr("nav.settings"))
+        self.sync_btn.setText(i18n.tr("sync.title"))
         if not self.account_name.text():
             self.account_name.setText(i18n.tr("account.add"))
 

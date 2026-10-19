@@ -63,6 +63,18 @@ class MainWindow(QMainWindow):
         self.sidebar.section_changed.connect(self._show_section)
         self.sidebar.settings_requested.connect(self._open_settings)
         self.sidebar.account_requested.connect(self._show_account_menu)
+        self.sidebar.sync_requested.connect(self.show_sync_dialog)
+
+        # демон yandex-disk (опционален) + область уведомлений
+        from ydx.services.daemon import DaemonController
+        from ydx.ui.tray import TrayController
+
+        self.daemon = DaemonController(accounts)
+        self.sidebar.sync_btn.setVisible(self.daemon.installed)
+        self.daemon.availability_changed.connect(self.sidebar.sync_btn.setVisible)
+        if self.daemon.installed:
+            self.daemon.watch()
+        self.tray = TrayController(self, accounts, self.daemon)
 
         accounts.accounts_changed.connect(self._on_accounts_changed)
         accounts.active_changed.connect(self._on_active_changed)
@@ -187,6 +199,12 @@ class MainWindow(QMainWindow):
     def _open_settings(self) -> None:
         # полноценный диалог настроек появится в M6
         pass
+
+    def show_sync_dialog(self) -> None:
+        from ydx.ui.panels.sync_panel import SyncDialog
+
+        if self.daemon.installed:
+            SyncDialog(self.daemon, self._accounts.resources, self).exec()
 
     # --- прочее ------------------------------------------------------------------------------
 

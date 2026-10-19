@@ -121,6 +121,9 @@ class AccountManager(QObject):
     def resources(self) -> ResourcesApi | None:
         return ResourcesApi(self._api) if self._api else None
 
+    def current_token(self) -> str:
+        return self._provider.get_token() if self._provider is not None else ""
+
     def _activate(self, account: Account | None) -> None:
         if account is None:
             self._api = None
