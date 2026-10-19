@@ -69,9 +69,13 @@ class MainWindow(QMainWindow):
         accounts.quota_updated.connect(self.sidebar.set_quota)
         accounts.auth_failed.connect(self._on_auth_failed)
 
-        # реальные разделы (по мере готовности; M2 — файлы, M3 — передачи)
+        # реальные разделы (M2 — файлы, M3 — передачи, M4 — корзина/общие/фото/недавние)
         from ydx.services.transfers import TransferEngine
         from ydx.ui.views.files_page import FilesPage
+        from ydx.ui.views.photos_page import PhotosPage
+        from ydx.ui.views.recent_page import RecentPage
+        from ydx.ui.views.shares_page import SharesPage
+        from ydx.ui.views.trash_page import TrashPage
         from ydx.ui.views.transfers_view import TransfersView
 
         self.engine = TransferEngine(accounts)
@@ -79,6 +83,15 @@ class MainWindow(QMainWindow):
         self.replace_page("files", self.files_page)
         self.transfers_view = TransfersView(self.engine)
         self.replace_page("transfers", self.transfers_view)
+        self.recent_page = RecentPage(accounts, self.thumbs)
+        self.recent_page.show_in_folder_requested.connect(self._show_in_folder)
+        self.replace_page("recent", self.recent_page)
+        self.photos_page = PhotosPage(accounts, self.thumbs)
+        self.replace_page("photos", self.photos_page)
+        self.shares_page = SharesPage(accounts, self.thumbs)
+        self.replace_page("shares", self.shares_page)
+        self.trash_page = TrashPage(accounts, self.thumbs)
+        self.replace_page("trash", self.trash_page)
 
         self.sidebar.set_secure(True)   # заменяется реальным флагом в app.py
         self.sidebar.set_section("files")
@@ -112,6 +125,12 @@ class MainWindow(QMainWindow):
         page = self._pages[key]
         if hasattr(page, "on_shown"):
             page.on_shown()
+
+    def _show_in_folder(self, path: str) -> None:
+        """Из «Недавних»: открыть папку файла в разделе «Файлы»."""
+        self.sidebar.set_section("files")
+        self._show_section("files")
+        self.files_page.load_path(path, remember=False)
 
     # --- аккаунты ----------------------------------------------------------------------
 
