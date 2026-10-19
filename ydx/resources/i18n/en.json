@@ -183,5 +183,18 @@
   "tray.status": "Status",
   "tray.quota": "{used} of {total} used",
   "tray.unavailable": "System tray unavailable",
-  "app.quit": "Quit"
+  "app.quit": "Quit",
+  "settings.title": "Settings",
+  "settings.general": "General",
+  "settings.theme": "Theme",
+  "settings.theme.light": "Light",
+  "settings.theme.dark": "Dark",
+  "settings.theme.system": "System",
+  "settings.language": "Language",
+  "settings.autostart": "Start on login",
+  "settings.account": "Account",
+  "settings.about": "About",
+  "settings.about_text": "Unofficial Yandex Disk client for Linux.\nVersion {version}. Not affiliated with Yandex.\nFeatures: files, links, trash, photos, transfers, sync.",
+  "settings.storage_secure": "Tokens are stored in the system secret storage",
+  "settings.storage_insecure": "Tokens in a 0600 file (secret storage unavailable)"
 }

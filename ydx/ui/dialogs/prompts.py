@@ -62,6 +62,7 @@ def ask_name(
 class PropertiesDialog(QDialog):
     def __init__(self, resource, thumbs: ThumbService, parent: QWidget | None = None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setModal(True)
         self.setMinimumSize(420, 460)
         self.setWindowTitle(resource.name)

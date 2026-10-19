@@ -63,6 +63,7 @@ class TrayController(QObject):
         self.tray = QSystemTrayIcon(_status_icon("stopped"), self)
         self.tray.setToolTip(i18n.tr("app.title"))
         menu = QMenu()
+        self._last_state = "stopped"
 
         self.status_action = QAction(i18n.tr("sync.state.stopped"), menu)
         self.status_action.setEnabled(False)
@@ -75,15 +76,20 @@ class TrayController(QObject):
         act_open = QAction(i18n.tr("tray.open"), menu)
         act_open.triggered.connect(self._show_window)
         menu.addAction(act_open)
-        act_sync = QAction(i18n.tr("sync.title") + "…", menu)
-        act_sync.triggered.connect(self._window.show_sync_dialog)
-        menu.addAction(act_sync)
-        self.pause_action = QAction(i18n.tr("sync.pause"), menu)
-        self.pause_action.triggered.connect(lambda: self._daemon.pause_for(2))
-        menu.addAction(self.pause_action)
-        act_stop = QAction(i18n.tr("sync.stop"), menu)
-        act_stop.triggered.connect(self._daemon.stop)
-        menu.addAction(act_stop)
+
+        # действия демона — только если бинарь установлен
+        self.sync_actions: list[QAction] = []
+        if daemon.installed:
+            act_sync = QAction(i18n.tr("sync.title") + "…", menu)
+            act_sync.triggered.connect(self._window.show_sync_dialog)
+            menu.addAction(act_sync)
+            self.pause_action = QAction(i18n.tr("sync.pause"), menu)
+            self.pause_action.triggered.connect(lambda: self._daemon.pause_for(2))
+            menu.addAction(self.pause_action)
+            act_stop = QAction(i18n.tr("sync.stop"), menu)
+            act_stop.triggered.connect(self._daemon.stop)
+            menu.addAction(act_stop)
+            self.sync_actions.extend((act_sync, self.pause_action, act_stop))
         menu.addSeparator()
         act_quit = QAction(i18n.tr("app.quit"), menu)
         act_quit.triggered.connect(self._quit)
@@ -130,9 +136,11 @@ class TrayController(QObject):
         self.status_action.setText(text)
         self.tray.setToolTip(f"{i18n.tr('app.title')} — {text}")
         self.tray.setIcon(_status_icon(status.state))
-        if status.state == "error":
+        # уведомление только при ПЕРЕХОДЕ в ошибку, не на каждом опросе
+        if status.state == "error" and self._last_state != "error":
             self.tray.showMessage(
                 i18n.tr("app.title"),
                 status.progress or text,
                 QSystemTrayIcon.MessageIcon.Warning,
             )
+        self._last_state = status.state

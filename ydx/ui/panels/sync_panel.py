@@ -37,6 +37,7 @@ class SyncDialog(QDialog):
         self._exclude: set[str] = set()
         self._readonly = False
         self._dirty = False
+        self._tree_loaded = False
 
         self.setModal(True)
         self.setMinimumSize(560, 620)
@@ -153,6 +154,7 @@ class SyncDialog(QDialog):
             )
             self.tree.addTopLevelItem(item)
         self.tree.blockSignals(False)
+        self._tree_loaded = True
 
     # --- управление демоном -----------------------------------------------------------
 
@@ -208,15 +210,21 @@ class SyncDialog(QDialog):
             self._mark_dirty()
 
     def _apply(self) -> None:
-        excluded = []
-        for i in range(self.tree.topLevelItemCount()):
-            item = self.tree.topLevelItem(i)
-            if item.checkState(0) == Qt.CheckState.Checked:
-                excluded.append(item.text(0))
+        # exclude-dirs пишем только если дерево реально загрузилось, иначе
+        # рискуем стереть существующие исключения; подпути (a/b) не трогаем
         updates: dict[str, str] = {
-            "exclude-dirs": exclude_dirs_str(excluded),
             "read-only": "true" if self.readonly_check.isChecked() else "false",
         }
+        if self._tree_loaded:
+            excluded = [
+                self.tree.topLevelItem(i).text(0)
+                for i in range(self.tree.topLevelItemCount())
+                if self.tree.topLevelItem(i).checkState(0) == Qt.CheckState.Checked
+            ]
+            # сохранить подпути из текущего конфига (дерево показывает только верхний уровень)
+            subpaths = [p for p in parse_exclude_dirs(
+                self._daemon.config().get("exclude-dirs", "")) if "/" in p]
+            updates["exclude-dirs"] = exclude_dirs_str(excluded + subpaths)
         new_dir = getattr(self, "_new_dir", None)
         if new_dir:
             updates["dir"] = new_dir

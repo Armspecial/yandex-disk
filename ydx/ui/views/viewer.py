@@ -13,6 +13,7 @@ from ydx.services.thumbs import ThumbService
 class PhotoViewer(QDialog):
     def __init__(self, resources: list[Resource], index: int, thumbs: ThumbService, parent=None) -> None:
         super().__init__(parent)
+        self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setWindowState(Qt.WindowState.WindowFullScreen)
         self.setStyleSheet("background-color: #101012;")

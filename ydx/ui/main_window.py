@@ -106,6 +106,7 @@ class MainWindow(QMainWindow):
         self.replace_page("trash", self.trash_page)
 
         self.sidebar.set_secure(True)   # заменяется реальным флагом в app.py
+        self._token_secure = True
         self.sidebar.set_section("files")
         i18n.register(self.retranslate)
         self.retranslate()
@@ -197,14 +198,26 @@ class MainWindow(QMainWindow):
             self._accounts.add_account(bundle, display_name)
 
     def _open_settings(self) -> None:
-        # полноценный диалог настроек появится в M6
-        pass
+        from PySide6.QtWidgets import QApplication
+
+        from ydx.ui.dialogs.settings_dlg import SettingsDialog
+
+        dlg = SettingsDialog(self._settings, QApplication.instance(), self)
+        dlg.set_secure(self._token_secure)
+        dlg.exec()
 
     def show_sync_dialog(self) -> None:
         from ydx.ui.panels.sync_panel import SyncDialog
 
         if self.daemon.installed:
-            SyncDialog(self.daemon, self._accounts.resources, self).exec()
+            dlg = SyncDialog(self.daemon, self._accounts.resources, self)
+            dlg.exec()
+            # разорвать связь с 2-секундными обновлениями статуса + убрать диалог
+            try:
+                self.daemon.status_updated.disconnect(dlg._on_status)
+            except (RuntimeError, TypeError):
+                pass
+            dlg.deleteLater()
 
     # --- прочее ------------------------------------------------------------------------------
 
@@ -224,3 +237,8 @@ class MainWindow(QMainWindow):
             if self.stack.currentWidget() is page:
                 return key
         return None
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt API
+        if hasattr(self, "daemon"):
+            self.daemon.shutdown()
+        super().closeEvent(event)

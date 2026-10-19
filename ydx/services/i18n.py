@@ -47,6 +47,14 @@ def register(callback: Callable[[], None]) -> None:
         _callbacks.append(callback)
 
 
+def unregister(callback: Callable[[], None]) -> None:
+    """Отменить регистрацию (диалоги при закрытии — иначе утечка колбэков)."""
+    try:
+        _callbacks.remove(callback)
+    except ValueError:
+        pass
+
+
 def set_language(lang: str) -> None:
     global _lang
     lang = lang if lang in _dicts or lang in ("ru", "en") else "ru"

@@ -38,17 +38,41 @@ def main(argv: list[str] | None = None) -> int:
     i18n.load(settings.language)
     apply_theme(app, settings.theme)
 
+    # --- single instance: второй запуск поднимает существующее окно -------------
+    from PySide6.QtNetwork import QLocalServer, QLocalSocket
+
+    probe = QLocalSocket()
+    probe.connectToServer(APP_ID)
+    if probe.waitForConnected(200):
+        probe.write(b"show")
+        probe.flush()
+        probe.disconnectFromServer()
+        return 0
+    QLocalServer.removeServer(APP_ID)
+    server = QLocalServer()
+    server.listen(APP_ID)
+
     store = TokenStore()
     accounts = AccountManager(settings, store)
     accounts.start()
 
     win = MainWindow(settings, accounts)
     win.sidebar.set_secure(store.secure)
+    win._token_secure = store.secure
     win.show()
 
     if accounts.active is None:
         from PySide6.QtCore import QTimer
 
         QTimer.singleShot(100, win.show_login)
+
+    def _raise_existing() -> None:
+        conn = server.nextPendingConnection()
+        if conn is not None:
+            conn.readyRead.connect(
+                lambda: (conn.readAll(), win.show(), win.raise_(), win.activateWindow())
+            )
+
+    server.newConnection.connect(_raise_existing)
 
     return app.exec()

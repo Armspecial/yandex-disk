@@ -397,3 +397,7 @@ class LoginDialog(QDialog):
         if self._listener is not None:
             self._listener.stop()
         super().reject()
+
+    def done(self, result: int) -> None:  # noqa: N802 — Qt API
+        i18n.unregister(self.retranslate)   # диалог закрыт — колбэк не нужен
+        super().done(result)

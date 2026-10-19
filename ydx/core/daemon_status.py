@@ -64,18 +64,26 @@ def parse_status(raw: str) -> DaemonStatus:
         elif line.startswith("Last synchronized items:"):
             in_last_items = True
         elif line.startswith("Error:"):
-            status.state = "error"
-            status.progress = line.split(":", 1)[1].strip()
+            error_text = line.split(":", 1)[1].strip()
+            lowered = error_text.lower()
+            # «daemon not started» (демонд остановлен) и «option 'dir' is missing»
+            # (нет конфига) — это не ошибки, а отсутствие работающего демона
+            if any(marker in lowered for marker in STOPPED_ERROR_MARKERS):
+                status.state = "stopped"
+            else:
+                status.state = "error"
+                status.progress = error_text
             in_last_items = False
         elif in_last_items:
-            m = re.match(r"(?:file|dir):\s*'(.*)'\s*$", line)
+            # реальный формат: file: '…' / directory: '…' (принимаем и dir:)
+            m = re.match(r"(?:file|dir|directory):\s*'(.*)'\s*$", line)
             if m and len(status.last_items) < 20:
                 status.last_items.append(m.group(1))
         elif line.startswith("Total:"):
             status.total = parse_size(line.split(":", 1)[1])
         elif line.startswith("Used:"):
             status.used = parse_size(line.split(":", 1)[1])
-        elif line.startswith("Free:"):
+        elif line.startswith("Available:") or line.startswith("Free:"):
             status.free = parse_size(line.split(":", 1)[1])
         elif line.startswith("Trash size:"):
             status.trash = parse_size(line.split(":", 1)[1])
@@ -84,12 +92,19 @@ def parse_status(raw: str) -> DaemonStatus:
     return status
 
 
-PAYWALL_MARKERS = ("360", "subscription", "paid", "платн", "подписк")
+PAYWALL_MARKERS = ("subscription", "подписк", "yandex 360", "360 subscription")
+
+# ошибки, которые на деле означают «демонд не работает/не настроен»
+STOPPED_ERROR_MARKERS = ("not started", "is missing", "не запущен")
 
 
 def looks_like_paywall(status: DaemonStatus) -> bool:
-    """Эвристика: ошибка демона, похожая на требование подписки Яндекс 360."""
+    """Эвристика: ошибка демона, похожая на требование подписки Яндекс 360.
+
+    Смотрим только на текст ошибки (progress), не на весь вывод — иначе
+    путь с «360» даст ложный баннер.
+    """
     if status.state != "error":
         return False
-    text = (status.progress + " " + status.raw).lower()
+    text = status.progress.lower()
     return any(marker in text for marker in PAYWALL_MARKERS)

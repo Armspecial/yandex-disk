@@ -183,5 +183,18 @@
   "tray.status": "Статус",
   "tray.quota": "Занято {used} из {total}",
   "tray.unavailable": "Область уведомлений недоступна",
-  "app.quit": "Выход"
+  "app.quit": "Выход",
+  "settings.title": "Настройки",
+  "settings.general": "Основные",
+  "settings.theme": "Тема оформления",
+  "settings.theme.light": "Светлая",
+  "settings.theme.dark": "Тёмная",
+  "settings.theme.system": "Системная",
+  "settings.language": "Язык",
+  "settings.autostart": "Запускать при входе в систему",
+  "settings.account": "Аккаунт",
+  "settings.about": "О приложении",
+  "settings.about_text": "Неофициальный клиент Яндекс.Диска для Linux.\nВерсия {version}. Не связан с Яндексом.\nФункциональность: файлы, ссылки, корзина, фото, передачи, синхронизация.",
+  "settings.storage_secure": "Токены хранятся в системном секретном хранилище",
+  "settings.storage_insecure": "Токены в файле 0600 (секретное хранилище недоступно)"
 }

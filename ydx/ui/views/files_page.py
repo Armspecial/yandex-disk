@@ -253,15 +253,22 @@ class FilesPage(QWidget):
 
     @staticmethod
     def _has_oversize(paths: list[str]) -> bool:
+        """Есть ли файлы >1 ГБ. Обход ограничен (GUI-поток): проверяем
+        первые 2000 записей каждой папки — этого хватает для предупреждения."""
         from pathlib import Path
 
+        limit = 2000
         for raw in paths:
             p = Path(raw)
             try:
-                if p.is_file() and p.stat().st_size > MAX_FREE_UPLOAD:
-                    return True
+                if p.is_file():
+                    if p.stat().st_size > MAX_FREE_UPLOAD:
+                        return True
+                    continue
                 if p.is_dir():
-                    for f in p.rglob("*"):
+                    for i, f in enumerate(p.rglob("*")):
+                        if i >= limit:
+                            break
                         if f.is_file() and f.stat().st_size > MAX_FREE_UPLOAD:
                             return True
             except OSError:
