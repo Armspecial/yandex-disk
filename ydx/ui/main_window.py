@@ -6,7 +6,7 @@ M1: каркас с плейсхолдерами разделов; раздел�
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, QTimer
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -185,6 +185,9 @@ class MainWindow(QMainWindow):
         self.sidebar.set_section("files")
         i18n.register(self.retranslate)
         self.retranslate()
+
+        # Ctrl+W — закрыть окно (в трей), как кнопкой «✕»
+        QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
 
     def _on_daemon_status_banner(self, status) -> None:
         """Нижний баннер: проценты и скорость, пока идёт синхронизация."""
