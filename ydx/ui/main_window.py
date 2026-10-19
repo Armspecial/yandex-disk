@@ -199,9 +199,17 @@ class MainWindow(QMainWindow):
             self.daemon.sync_now()
 
     def _on_task_done(self, task) -> None:
-        """Скачали файл → индекс офлайн-копий + значок."""
+        """Скачали файл → индекс офлайн-копий + значок + уведомление."""
         if task.kind == "download":
             self.downloaded_index.add(task.remote_path, task.local_path)
+            if getattr(self.tray, "available", False):
+                self.tray.tray.showMessage(
+                    i18n.tr("app.title"),
+                    i18n.tr("files.downloaded_to",
+                            name=task.remote_path.rsplit("/", 1)[-1],
+                            folder=task.local_path.rsplit("/", 1)[0]),
+                    QSystemTrayIcon.MessageIcon.Information,
+                )
 
     def _reupload_changed(self, remote_path: str, local_path: str) -> None:
         """Локально изменили скачанный файл — обновляем копию в облаке."""

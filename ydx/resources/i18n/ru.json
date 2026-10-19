@@ -225,5 +225,7 @@
   "photos.albums": "Альбомы",
   "photos.album_count": "{n} фото",
   "photos.back_albums": "← К альбомам",
-  "photos.root_album": "Без папки"
+  "photos.root_album": "Без папки",
+  "settings.downloads_folder": "Папка загрузок",
+  "files.downloaded_to": "«{name}» скачан в {folder}"
 }

@@ -146,14 +146,23 @@ def test_cancel_queued(sync_engine, monkeypatch):
     assert last.state in ("done", "cancelled")
 
 
-def test_download_to_file(sync_engine, tmp_path):
+def test_download_to_nested_path(sync_engine, tmp_path):
     make, _ = sync_engine
     engine, res = make({})
     from ydx.core.models import Resource
 
-    r = Resource(name="f.bin", type="file", path="disk:/f.bin", size=4)
-    engine.enqueue_download(r, str(tmp_path / "dl"))
-    target = tmp_path / "dl" / "f.bin"
+    r = Resource(name="клип.mp4", type="file", path="disk:/Фото2026/клип.mp4", size=4)
+    engine.enqueue_download(r, str(tmp_path / "Yandex Disk" / "Фото2026" / "клип.mp4"))
+    target = tmp_path / "Yandex Disk" / "Фото2026" / "клип.mp4"
     assert target.read_bytes() == b"data"
     assert engine.tasks[0].state == "done"
-    assert not list((tmp_path / "dl").glob("*.part"))
+    assert not list((tmp_path / "Yandex Disk").rglob("*.part"))
+
+
+def test_mirror_local_path():
+    from ydx.ui.views.files_page import mirror_local_path
+
+    p = mirror_local_path("/home/u/Yandex Disk", "disk:/Фото2026/клип.mp4")
+    assert str(p) == "/home/u/Yandex Disk/Фото2026/клип.mp4"
+    p2 = mirror_local_path("/home/u/Yandex Disk", "disk:/file.txt")
+    assert str(p2) == "/home/u/Yandex Disk/file.txt"

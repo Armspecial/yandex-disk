@@ -134,35 +134,45 @@ class FilesDelegate(QStyledItemDelegate):
         return mime.resource_pixmap(r, size)
 
     def _sync_badge(self, p: QPainter, icon_rect: QRect, r: Resource) -> None:
-        """Значок состояния файла относительно компьютера."""
+        """Значок состояния файла относительно компьютера.
+
+        offline — синий диск со стрелкой «скачан на компьютер»;
+        synced  — зелёный диск с галочкой (синхронизирован демоном);
+        cloud   — тёмно-серый диск с облаком (только онлайн).
+        """
         state = self.item_states.get(r.path)
         if not state:
             return
-        d = 13
-        x, y = icon_rect.left() - 3, icon_rect.bottom() - d
+        d = 15
+        x, y = icon_rect.left() - 4, icon_rect.bottom() - d
+        cx, cy = x + d / 2, y + d / 2
         p.setPen(Qt.PenStyle.NoPen)
-        if state == "offline":           # скачан: доступно офлайн
+        white = QPen(QColor("#FFFFFF"), 1.7)
+        white.setCapStyle(Qt.PenCapStyle.RoundCap)
+        white.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
+        if state == "offline":
             p.setBrush(QColor("#2E6BE6"))
             p.drawEllipse(x, y, d, d)
-            p.setPen(QPen(QColor("#FFFFFF"), 2))
-            cx, cy = x + d / 2, y + d / 2
-            p.drawLine(int(cx), int(cy - 3), int(cx), int(cy + 1))
-            p.drawLine(int(cx - 2), int(cy - 1), int(cx), int(cy + 1))
-            p.drawLine(int(cx + 2), int(cy - 1), int(cx), int(cy + 1))
-        elif state == "synced":          # синхронизировано демоном
+            p.setPen(white)
+            ix, iy = int(cx), int(cy)
+            p.drawLine(ix, iy - 4, ix, iy + 1)                    # стрелка вниз
+            p.drawLine(ix - 2, iy - 1, ix, iy + 1)
+            p.drawLine(ix + 2, iy - 1, ix, iy + 1)
+            p.drawLine(int(cx) - 3, iy + 4, int(cx) + 3, iy + 4)  # «лоток» компьютера
+        elif state == "synced":
             p.setBrush(QColor("#1DA740"))
             p.drawEllipse(x, y, d, d)
-            p.setPen(QPen(QColor("#FFFFFF"), 2))
-            p.drawLine(x + 3, y + 7, x + 5, y + 9)
-            p.drawLine(x + 5, y + 9, x + 10, y + 3)
-        elif state == "cloud":           # только в облаке
-            p.setBrush(QColor("#8A8D94"))
+            p.setPen(white)
+            p.drawLine(int(cx) - 4, int(cy), int(cx) - 1, int(cy) + 3)
+            p.drawLine(int(cx) - 1, int(cy) + 3, int(cx) + 4, int(cy) - 3)
+        elif state == "cloud":
+            p.setBrush(QColor("#5F6368"))
             p.drawEllipse(x, y, d, d)
-            p.setPen(QPen(QColor("#FFFFFF"), 2))
-            cx, cy = x + d / 2, y + d / 2
-            p.drawArc(int(cx - 4), int(cy - 2), 6, 5, 30 * 16, 180 * 16)
-            p.drawArc(int(cx - 1), int(cy - 2), 6, 5, 180 * 16, 180 * 16)
-            p.drawLine(int(cx - 4), int(cy + 2), int(cx + 4), int(cy + 2))
+            p.setPen(white)
+            x0, y0 = int(cx) - 4, int(cy) + 1
+            p.drawArc(x0, y0 - 2, 5, 5, 0, 180 * 16)              # левый бугор
+            p.drawArc(x0 + 2, y0 - 4, 5, 6, 20 * 16, 180 * 16)    # правый бугор
+            p.drawLine(x0, y0, x0 + 6, y0)                        # основание
 
     def _badge(self, p: QPainter, icon_rect: QRect) -> None:
         """Значок «опубликовано» — маленькая точка-ссылка в углу иконки."""

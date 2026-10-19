@@ -225,5 +225,7 @@
   "photos.albums": "Albums",
   "photos.album_count": "{n} photos",
   "photos.back_albums": "← Back to albums",
-  "photos.root_album": "No folder"
+  "photos.root_album": "No folder",
+  "settings.downloads_folder": "Downloads folder",
+  "files.downloaded_to": "“{name}” downloaded to {folder}"
 }

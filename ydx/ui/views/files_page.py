@@ -6,6 +6,8 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import QSortFilterProxyModel, Qt, Signal
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
@@ -53,6 +55,14 @@ class FilesFilterModel(QSortFilterProxyModel):
         index = self.sourceModel().index(source_row, 0, source_parent)
         resource = index.data(ResourceRole)
         return resource is not None and self._needle in (resource.name or "").lower()
+
+
+def mirror_local_path(base, remote_path: str):
+    """disk:/Фото2026/клип.mp4 → base/Фото2026/клип.mp4 (структура облака)."""
+    from pathlib import Path
+
+    rel = remote_path.removeprefix("disk:").lstrip("/")
+    return (Path(base) / rel) if rel else Path(base)
 
 
 class FilesPage(QWidget):
@@ -378,23 +388,20 @@ class FilesPage(QWidget):
         return False
 
     def _download_selected(self, resources: list[Resource]) -> None:
+        """Скачать в ~/Yandex Disk (или папку из настроек), повторяя структуру облака."""
         files = [r for r in resources if not r.is_dir]
         if not files:
             return
-        from PySide6.QtWidgets import QFileDialog
-        from PySide6.QtCore import QStandardPaths
-
-        default = self._settings.get("downloads_dir") or QStandardPaths.writableLocation(
-            QStandardPaths.StandardLocation.DownloadLocation
-        )
-        target = QFileDialog.getExistingDirectory(
-            self, i18n.tr("transfers.download_to"), default
-        )
-        if not target:
-            return
-        self._settings.set("downloads_dir", target)
+        base = Path(self._downloads_dir())
+        base.mkdir(parents=True, exist_ok=True)
         for r in files:
-            self._engine.enqueue_download(r, target)
+            self._engine.enqueue_download(r, str(mirror_local_path(base, r.path)))
+
+    def _downloads_dir(self) -> str:
+        from pathlib import Path
+
+        configured = self._settings.get("downloads_dir")
+        return configured or str(Path.home() / "Yandex Disk")
 
     def rename(self, resource: Resource) -> None:
         new_name = ask_name(

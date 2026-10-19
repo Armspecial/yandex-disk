@@ -81,6 +81,16 @@ class SettingsDialog(QDialog):
         self.autostart_check.toggled.connect(self._autostart_toggled)
         form.addRow("", self.autostart_check)
 
+        # папка загрузок (куда «Скачать» кладёт файлы, повторяя структуру облака)
+        dl_row = QHBoxLayout()
+        self.downloads_label = QLabel()
+        self.downloads_label.setObjectName("dialogHint")
+        dl_change = QPushButton(i18n.tr("sync.change_folder"))
+        dl_change.clicked.connect(self._change_downloads_dir)
+        dl_row.addWidget(self.downloads_label, 1)
+        dl_row.addWidget(dl_change)
+        form.addRow(i18n.tr("settings.downloads_folder"), dl_row)
+
         col.addWidget(general)
 
         # синхронизация: папку можно поменять в любой момент
@@ -174,6 +184,25 @@ class SettingsDialog(QDialog):
 
             QTimer.singleShot(1500, self._daemon.start)
 
+    def _update_downloads_label(self) -> None:
+        from pathlib import Path
+
+        from PySide6.QtCore import QStandardPaths
+
+        directory = self._settings.get("downloads_dir") or str(Path.home() / "Yandex Disk")
+        self.downloads_label.setText(directory)
+
+    def _change_downloads_dir(self) -> None:
+        from pathlib import Path
+
+        current = self._settings.get("downloads_dir") or str(Path.home() / "Yandex Disk")
+        folder = QFileDialog.getExistingDirectory(
+            self, i18n.tr("settings.downloads_folder"), current
+        )
+        if folder:
+            self._settings.set("downloads_dir", folder)
+            self._update_downloads_label()
+
     def _autostart_toggled(self, on: bool) -> None:
         AUTOSTART_FILE.parent.mkdir(parents=True, exist_ok=True)
         if on:
@@ -195,6 +224,7 @@ class SettingsDialog(QDialog):
         self.set_secure(getattr(self, "_secure", True))
         self._general_box.setTitle(i18n.tr("settings.general"))
         self._account_box.setTitle(i18n.tr("settings.account"))
+        self._update_downloads_label()
         if hasattr(self, "_sync_box"):
             self._sync_box.setTitle(i18n.tr("sync.title"))
             self.sync_now_btn.setText(i18n.tr("sync.sync_now"))

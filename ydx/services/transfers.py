@@ -141,11 +141,11 @@ class TransferEngine(QObject):
         self.tasks_changed.emit()
         self._kick()
 
-    def enqueue_download(self, resource, target_dir: str) -> None:
-        name = resource.name
+    def enqueue_download(self, resource, local_path: str) -> None:
+        """Скачивание в полный локальный путь (подпапки создаются автоматически)."""
         task = TransferTask(
             id=next(self._ids), kind="download",
-            local_path=str(Path(target_dir) / name),
+            local_path=str(local_path),
             remote_path=resource.path, size=resource.size, resource=resource,
         )
         self._tasks.append(task)
