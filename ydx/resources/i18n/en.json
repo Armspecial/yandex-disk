@@ -241,5 +241,8 @@
   "settings.logout": "Sign out",
   "settings.no_account": "Not signed in",
   "settings.current_account": "Current account",
-  "settings.logout_confirm": "Sign out of “{name}”? The token will be removed from storage."
+  "settings.logout_confirm": "Sign out of “{name}”? The token will be removed from storage.",
+  "signedout.title": "You are signed out",
+  "signedout.hint": "Sign in with Yandex ID to work with your Disk — one click.",
+  "signedout.login": "Sign in with Yandex ID"
 }

@@ -241,5 +241,8 @@
   "settings.logout": "Выйти из аккаунта",
   "settings.no_account": "Вход не выполнен",
   "settings.current_account": "Текущий аккаунт",
-  "settings.logout_confirm": "Выйти из аккаунта «{name}»? Токен будет удалён из хранилища."
+  "settings.logout_confirm": "Выйти из аккаунта «{name}»? Токен будет удалён из хранилища.",
+  "signedout.title": "Вы вышли из аккаунта",
+  "signedout.hint": "Чтобы работать с Диском, войдите через Яндекс ID — это один клик.",
+  "signedout.login": "Войти через Яндекс ID"
 }

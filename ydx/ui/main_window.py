@@ -14,6 +14,7 @@ from PySide6.QtWidgets import (
     QMenu,
     QStackedWidget,
     QSystemTrayIcon,
+    QVBoxLayout,
     QWidget,
 )
 
@@ -54,6 +55,34 @@ class MainWindow(QMainWindow):
             self._pages[key] = page
             self.stack.addWidget(page)
         layout.addWidget(self.stack, 1)
+
+        # --- страница «Вы вышли из аккаунта» (после logout / без аккаунта) -----
+        from PySide6.QtWidgets import QPushButton as _QPushButton
+
+        self._signed_out_page = QWidget()
+        so_col = QVBoxLayout(self._signed_out_page)
+        so_col.setContentsMargins(40, 0, 40, 0)
+        so_col.setSpacing(10)
+        so_title = QLabel()
+        so_title.setObjectName("dialogTitle")
+        so_title.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        so_title.setProperty("i18n_key", "signedout.title")
+        so_hint = QLabel()
+        so_hint.setObjectName("dialogHint")
+        so_hint.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        so_hint.setWordWrap(True)
+        so_hint.setProperty("i18n_key", "signedout.hint")
+        self._signed_out_login_btn = _QPushButton()
+        self._signed_out_login_btn.setProperty("class", "primary")
+        self._signed_out_login_btn.setMinimumWidth(280)
+        self._signed_out_login_btn.clicked.connect(self.show_login)
+        so_col.addStretch(2)
+        so_col.addWidget(so_title, 0, Qt.AlignmentFlag.AlignCenter)
+        so_col.addWidget(so_hint, 0, Qt.AlignmentFlag.AlignCenter)
+        so_col.addSpacing(8)
+        so_col.addWidget(self._signed_out_login_btn, 0, Qt.AlignmentFlag.AlignCenter)
+        so_col.addStretch(3)
+        self.stack.addWidget(self._signed_out_page)
 
         # --- нижний баннер синхронизации: проценты и скорость ------------------
         from PySide6.QtWidgets import QHBoxLayout as _HBox
@@ -271,6 +300,10 @@ class MainWindow(QMainWindow):
         self.stack.insertWidget(idx, widget)
 
     def _show_section(self, key: str) -> None:
+        if self._accounts.active is None:
+            # без аккаунта любой раздел показывает приглашение войти
+            self.stack.setCurrentWidget(self._signed_out_page)
+            return
         self.stack.setCurrentWidget(self._pages[key])
         page = self._pages[key]
         if hasattr(page, "on_shown"):
@@ -289,7 +322,12 @@ class MainWindow(QMainWindow):
 
     def _on_active_changed(self, account: Account | None) -> None:
         self.sidebar.set_account(account)
-        if account is not None:
+        if account is None:
+            self.sidebar.set_quota(None)
+            self.stack.setCurrentWidget(self._signed_out_page)
+        else:
+            self.stack.setCurrentWidget(self._pages.get("files", self._pages["files"]))
+            self.sidebar.set_section("files")
             self._accounts.refresh_quota()
 
     def _show_account_menu(self, global_pos) -> None:
@@ -364,6 +402,11 @@ class MainWindow(QMainWindow):
 
     def retranslate(self) -> None:
         self.setWindowTitle(i18n.tr("app.title"))
+        for label in self._signed_out_page.findChildren(QLabel):
+            key = label.property("i18n_key")
+            if key:
+                label.setText(i18n.tr(key))
+        self._signed_out_login_btn.setText(i18n.tr("signedout.login"))
         for key in PLACEHOLDER_PAGES:
             page = self._pages[key]
             label = page.property("placeholder_label")

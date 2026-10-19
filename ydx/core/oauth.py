@@ -44,12 +44,13 @@ class OAuthClient:
     # --- authorization code flow ----------------------------------------------
 
     def authorize_url(self, state: str) -> str:
+        # Скоупы НЕ перечисляем явно: Яндекс запрашивает права, зарегистрированные
+        # у приложения. Фиксированный список давал invalid_scope, если у приложения
+        # отмечены не все права (как у device-флоу, который работает).
         qs = {
             "response_type": "code",
             "client_id": self.client_id,
             "redirect_uri": REDIRECT_URI,
-            "scope": SCOPES,
-            "optional_scope": OPTIONAL_SCOPES,   # логин/имя/аватар — если право выдано
             "state": state,
             "force_confirm": "yes",
         }
@@ -217,6 +218,16 @@ class RedirectListener:
                         "padding-top:60px'><h2>Вход выполнен</h2>"
                         "<p>Можно вернуться в приложение «Яндекс Диск».</p></body></html>"
                     ).encode("utf-8")
+                elif qs.get("error"):
+                    # Яндекс вернул ошибку (например invalid_scope) — отдаём её в приложение
+                    error = qs.get("error", [""])[0]
+                    desc = qs.get("error_description", [""])[0]
+                    outer._q.put(("", f"oauth-error:{error}: {desc}".strip()))
+                    body = (
+                        "<html><body style='font-family:sans-serif;text-align:center;"
+                        "padding-top:60px'><h2>Не удалось войти</h2>"
+                        "<p>Вернитесь в приложение — там показана причина.</p></body></html>"
+                    ).encode("utf-8")
                 else:
                     body = (
                         "<html><body><h2>Ожидание авторизации…</h2></body></html>"
@@ -237,11 +248,13 @@ class RedirectListener:
         self._thread.start()
 
     def wait_code(self, timeout: float, expected_state: str) -> str:
-        """Ждать код; проверяет state. Возвращает code или бросает AuthError."""
+        """Ждать код; проверяет state. Ошибка OAuth отдаётся сразу как AuthError."""
         try:
             code, state = self._q.get(timeout=timeout)
         except queue.Empty as exc:
             raise AuthError("redirect wait timeout") from exc
+        if code.startswith("oauth-error:"):
+            raise AuthError(code.removeprefix("oauth-error:"))
         if state != expected_state:
             raise AuthError("state mismatch")
         return code

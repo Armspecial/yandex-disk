@@ -17,7 +17,9 @@ def test_authorize_url():
     assert "response_type=code" in url
     assert "client_id=cid" in url
     assert f"redirect_uri={REDIRECT_URI.replace(':', '%3A').replace('/', '%2F')}" in url
-    assert "scope=cloud_api%3Adisk.read" in url
+    # скоупы не перечисляем — Яндекс берёт права из регистрации приложения
+    # (фиксированный список давал invalid_scope, если отмечены не все права)
+    assert "scope=" not in url
     assert "state=st4te" in url
 
 
