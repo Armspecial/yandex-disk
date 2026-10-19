@@ -60,8 +60,12 @@ class AppSettings:
 
     @property
     def client_id(self) -> str:
-        return self.get("client_id")
+        from ydx.constants import DEFAULT_CLIENT_ID
+
+        return self.get("client_id") or DEFAULT_CLIENT_ID
 
     @property
     def client_secret(self) -> str:
-        return self.get("client_secret")
+        from ydx.constants import DEFAULT_CLIENT_SECRET
+
+        return self.get("client_secret") or DEFAULT_CLIENT_SECRET

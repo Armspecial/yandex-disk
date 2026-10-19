@@ -165,6 +165,12 @@ class LoginDialog(QDialog):
         for row in self.method_rows:
             col.addWidget(row)
         col.addStretch(1)
+        # для продвинутых: подменить встроенный ключ своим приложением
+        self.own_key_btn = QPushButton()
+        self.own_key_btn.setProperty("class", "flat")
+        self.own_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.own_key_btn.clicked.connect(lambda: self._go(PAGE_CONFIG))
+        col.addWidget(self.own_key_btn, 0, Qt.AlignmentFlag.AlignLeft)
         return page
 
     def _page_device(self) -> QWidget:
@@ -367,7 +373,8 @@ class LoginDialog(QDialog):
     def retranslate(self) -> None:
         self.setWindowTitle(i18n.tr("login.welcome"))
         self.title.setText(i18n.tr("login.welcome"))
-        self.hint.setText(i18n.tr("login.client_hint"))
+        self.hint.setText(i18n.tr("login.welcome_hint"))
+        self.own_key_btn.setText(i18n.tr("login.own_key"))
         self.cfg_oauth_link.setText(i18n.tr("login.open_oauth"))
         self.cfg_paste_btn.setText(i18n.tr("login.method_paste"))
         self.cfg_continue_btn.setText(i18n.tr("login.continue"))
