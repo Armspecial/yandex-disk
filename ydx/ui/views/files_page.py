@@ -125,6 +125,13 @@ class FilesPage(QWidget):
         self.toolbar.view_mode_changed.connect(self._set_mode)
         self.toolbar.sort_changed.connect(self._set_sort)
         self.toolbar.new_folder_clicked.connect(self.new_folder)
+        self.toolbar.free_up_clicked.connect(
+            lambda: self._free_up(self.view.selected_resources())
+        )
+        # кнопка активна, когда в выделении есть скачанные файлы
+        selection = self.view.selectionModel()
+        if selection is not None:
+            selection.selectionChanged.connect(lambda *_: self._update_free_up_button())
         self.toolbar.upload_files_clicked.connect(self._upload_files_dialog)
         self.toolbar.upload_folder_clicked.connect(self._upload_folder_dialog)
         self.view.open_requested.connect(self._open)
@@ -321,6 +328,67 @@ class FilesPage(QWidget):
             job,
             lambda _n: self._after_op(),
             lambda exc: show_api_error(self, exc),
+        )
+
+    # --- «убрать с компьютера» (локальную копию удалить, в облаке оставить) ----
+
+    def _free_up(self, resources: list[Resource]) -> None:
+        """Удаляет локальные копии скачанных файлов; файл остаётся только онлайн.
+
+        Файлы из папки синхронизации демона пропускаются: их локальное
+        удаление демонд счёл бы удалением и в облаке.
+        """
+        if self._downloaded is None or not resources:
+            return
+        offline = [r for r in resources if self._downloaded.has(r.path)]
+        if not offline:
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(self, i18n.tr("app.title"), i18n.tr("files.free_up_none"))
+            return
+        skipped = len(resources) - len(offline)
+
+        total = 0
+        from pathlib import Path
+
+        for r in offline:
+            local = self._downloaded.local_for(r.path)
+            if local:
+                try:
+                    total += Path(local).stat().st_size
+                except OSError:
+                    pass
+        if not confirm(
+            self, i18n.tr("files.free_up_confirm", n=len(offline), size=human_size(total))
+        ):
+            return
+
+        freed = 0
+        for r in offline:
+            local = self._downloaded.local_for(r.path)
+            if not local:
+                continue
+            try:
+                freed += Path(local).stat().st_size
+                Path(local).unlink()
+            except OSError:
+                pass
+            self._downloaded.remove(r.path)
+
+        from PySide6.QtWidgets import QMessageBox
+
+        text = i18n.tr("files.free_up_done", size=human_size(freed))
+        if skipped:
+            text += "\n" + i18n.tr("files.free_up_skipped_synced", n=skipped)
+        QMessageBox.information(self, i18n.tr("app.title"), text)
+        self._sync_refresh_timer.start()
+
+    def _update_free_up_button(self) -> None:
+        if self._downloaded is None:
+            return
+        selected = self.view.selected_resources()
+        self.toolbar.free_up_btn.setEnabled(
+            any(self._downloaded.has(r.path) for r in selected)
         )
 
     # --- передачи ---------------------------------------------------------------
@@ -532,6 +600,12 @@ class FilesPage(QWidget):
             act_download = QAction(i18n.tr("ctx.download"), menu)
             act_download.triggered.connect(lambda: self._download_selected(resources))
             menu.addAction(act_download)
+            if self._downloaded is not None and any(
+                self._downloaded.has(r.path) for r in resources
+            ):
+                act_free = QAction(i18n.tr("ctx.free_up"), menu)
+                act_free.triggered.connect(lambda: self._free_up(resources))
+                menu.addAction(act_free)
 
         if single is not None and single.public_url:
             act_copy = QAction(i18n.tr("ctx.copy_link"), menu)

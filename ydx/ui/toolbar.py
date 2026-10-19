@@ -109,6 +109,7 @@ class FilesToolbar(QWidget):
     new_folder_clicked = Signal()
     upload_files_clicked = Signal()
     upload_folder_clicked = Signal()
+    free_up_clicked = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -172,6 +173,15 @@ class FilesToolbar(QWidget):
         self.new_folder_btn.clicked.connect(self.new_folder_clicked.emit)
         lay.addWidget(self.new_folder_btn)
 
+        # «Убрать с компьютера» для нескольких выбранных файлов сразу
+        self.free_up_btn = QPushButton()
+        self.free_up_btn.setProperty("class", "icon")
+        self.free_up_btn.setIcon(icon("cloud-only"))
+        self.free_up_btn.setToolTip(i18n.tr("toolbar.free_up"))
+        self.free_up_btn.setEnabled(False)
+        self.free_up_btn.clicked.connect(self.free_up_clicked.emit)
+        lay.addWidget(self.free_up_btn)
+
     def _view(self, mode: str) -> None:
         self.list_btn.setChecked(mode == "list")
         self.grid_btn.setChecked(mode == "grid")
@@ -215,6 +225,7 @@ class FilesToolbar(QWidget):
         self.grid_btn.setToolTip(i18n.tr("toolbar.view_grid"))
         self.new_folder_btn.setToolTip(i18n.tr("files.new_folder"))
         self.upload_btn.setText(i18n.tr("btn.upload"))
+        self.free_up_btn.setToolTip(i18n.tr("toolbar.free_up"))
         for i, (value, key) in enumerate(SORT_VALUES):
             self.sort_combo.setItemText(i, i18n.tr(key))
         self.breadcrumbs.set_path(self.breadcrumbs.path)
