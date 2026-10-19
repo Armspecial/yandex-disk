@@ -22,6 +22,7 @@ check_pkg python3-venv
 check_pkg libegl1
 check_pkg libgl1
 check_pkg libxkbcommon0
+check_pkg libxcb-cursor0
 check_pkg libfontconfig1
 check_pkg libglib2.0-0t64 libglib2.0-0
 check_pkg libdbus-1-3
