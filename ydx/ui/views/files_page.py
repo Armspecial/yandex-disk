@@ -60,13 +60,14 @@ class FilesPage(QWidget):
 
     def __init__(
         self, settings: AppSettings, accounts: AccountManager, thumbs: ThumbService,
-        engine: TransferEngine, parent: QWidget | None = None,
+        engine: TransferEngine, downloaded=None, parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._settings = settings
         self._accounts = accounts
         self._thumbs = thumbs
         self._engine = engine
+        self._downloaded = downloaded
         self._history: list[str] = []
         self._current = "disk:/"
         self._filter = ""
@@ -142,6 +143,10 @@ class FilesPage(QWidget):
         from ydx.services.sync_state import LocalSyncIndex
 
         self._sync_index = LocalSyncIndex(self)
+        if self._downloaded is not None:
+            self._downloaded.index_changed.connect(
+                lambda: self._sync_refresh_timer.start()
+            )
 
         i18n.register(self.retranslate)
 
@@ -212,30 +217,37 @@ class FilesPage(QWidget):
     # --- значки синхронизации и «только на компьютере» ------------------------
 
     def _refresh_sync_states(self) -> None:
-        """Сравнить облако с локальной папкой: значки + полоса local-only."""
-        if not self._sync_index.is_configured():
-            self.view.set_sync_states({})
-            self.local_strip.hide()
-            return
+        """Состояния файлов: offline (скачан) / synced (демон) / cloud."""
         if self.model.loading:
-            self._sync_refresh_timer.start()   # данные ещё грузятся — подождём
+            self._sync_refresh_timer.start()   # данные ещё грузимся — подождём
             return
         resources = list(self.model.items)
 
         def job():
-            index = self._sync_index
-            states = {r.path: index.exists_locally(r.path) for r in resources}
-            cloud_names = {r.name for r in resources}
-            local_only = [
-                (name, is_dir)
-                for name, is_dir in index.local_only_for(self._current)
-                if name not in cloud_names
-            ]
+            downloaded = self._downloaded
+            sync_index = self._sync_index
+            sync_on = sync_index.is_configured()
+            states: dict[str, str] = {}
+            for r in resources:
+                if downloaded is not None and downloaded.has(r.path):
+                    states[r.path] = "offline"
+                elif sync_on and sync_index.exists_locally(r.path):
+                    states[r.path] = "synced"
+                else:
+                    states[r.path] = "cloud"
+            local_only = []
+            if sync_on:
+                cloud_names = {r.name for r in resources}
+                local_only = [
+                    (name, is_dir)
+                    for name, is_dir in sync_index.local_only_for(self._current)
+                    if name not in cloud_names
+                ]
             return states, local_only
 
         def done(result) -> None:
             states, local_only = result
-            self.view.set_sync_states(states)
+            self.view.set_item_states(states)
             if local_only:
                 names = ", ".join(
                     (n + "/" if d else n) for n, d in local_only[:12]

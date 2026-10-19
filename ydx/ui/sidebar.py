@@ -36,6 +36,7 @@ class Sidebar(QFrame):
     account_requested = Signal(QPoint)   # глобальная позиция — открыть меню аккаунта
     settings_requested = Signal()
     sync_requested = Signal()
+    errors_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
         super().__init__(parent)
@@ -121,6 +122,15 @@ class Sidebar(QFrame):
         self.sync_btn.clicked.connect(self.sync_requested.emit)
         root.addWidget(self.sync_btn)
 
+        # --- ошибки (бейдж с количеством) ---
+        self.errors_btn = QPushButton()
+        self.errors_btn.setObjectName("navBtn")
+        self.errors_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.errors_btn.setIcon(icon("more"))
+        self.errors_btn.clicked.connect(self.errors_requested.emit)
+        self.errors_btn.hide()
+        root.addWidget(self.errors_btn)
+
         # --- настройки ---
         self.settings_btn = QPushButton()
         self.settings_btn.setObjectName("navBtn")
@@ -130,6 +140,7 @@ class Sidebar(QFrame):
         root.addWidget(self.settings_btn)
 
         self.account_btn.clicked.connect(self._emit_account_menu)
+        self._error_count = 0
         i18n.register(self.retranslate)
         self.retranslate()
 
@@ -176,11 +187,21 @@ class Sidebar(QFrame):
         if btn is not None:
             btn.setChecked(True)
 
+    def set_error_count(self, count: int) -> None:
+        """Показать/скрыть кнопку ошибок и бейдж с числом."""
+        self._error_count = count
+        self.errors_btn.setVisible(count > 0)
+        self.errors_btn.setText(
+            i18n.tr("nav.errors") + (f"  ·  {count}" if count else "")
+        )
+
     def retranslate(self) -> None:
         for key, _ic, text_key in SECTIONS:
             self._buttons[key].setText(i18n.tr(text_key))
         self.settings_btn.setText(i18n.tr("nav.settings"))
         self.sync_btn.setText(i18n.tr("sync.title"))
+        if self.errors_btn.isVisible():
+            self.errors_btn.setText(i18n.tr("nav.errors") + f"  ·  {self._error_count}")
         if not self.account_name.text():
             self.account_name.setText(i18n.tr("account.add"))
 

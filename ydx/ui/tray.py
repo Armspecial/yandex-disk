@@ -98,7 +98,10 @@ class TrayController(QObject):
         self.tray.setContextMenu(menu)
         self.tray.activated.connect(
             lambda reason: self._show_window()
-            if reason == QSystemTrayIcon.ActivationReason.DoubleClick
+            if reason in (
+                QSystemTrayIcon.ActivationReason.DoubleClick,
+                QSystemTrayIcon.ActivationReason.Trigger,
+            )
             else None
         )
         self.tray.show()

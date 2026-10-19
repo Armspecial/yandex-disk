@@ -112,7 +112,10 @@ class MainWindow(QMainWindow):
         accounts.auth_failed.connect(self._on_auth_failed)
 
         # реальные разделы (M2 — файлы, M3 — передачи, M4 — корзина/общие/фото/недавние)
+        from ydx.services.downloaded_index import DownloadedIndex
+        from ydx.services.error_center import ErrorCenter
         from ydx.services.transfers import TransferEngine
+        from ydx.ui.errors_ui import attach_center
         from ydx.ui.views.files_page import FilesPage
         from ydx.ui.views.photos_page import PhotosPage
         from ydx.ui.views.recent_page import RecentPage
@@ -120,8 +123,32 @@ class MainWindow(QMainWindow):
         from ydx.ui.views.trash_page import TrashPage
         from ydx.ui.views.transfers_view import TransfersView
 
+        self.error_center = ErrorCenter(self)
+        attach_center(self.error_center)
+        self.error_center.changed.connect(
+            lambda: self.sidebar.set_error_count(self.error_center.count)
+        )
+        self.sidebar.errors_requested.connect(self._show_errors)
+
+        self.downloaded_index = DownloadedIndex(self)
         self.engine = TransferEngine(accounts)
-        self.files_page = FilesPage(settings, accounts, self.thumbs, self.engine)
+
+        # скачанный файл изменили локально → перезалить в облако
+        self.downloaded_index.file_changed.connect(self._reupload_changed)
+
+        # завершённые скачивания → значок «доступно офлайн»
+        self.engine.task_done.connect(self._on_task_done)
+        self.engine.task_error.connect(
+            lambda t: self.error_center.report(
+                "transfers",
+                f"{t.remote_path.rsplit('/', 1)[-1]}: {t.state}"
+                + (f" ({t.error})" if t.error else ""),
+            )
+        )
+
+        self.files_page = FilesPage(
+            settings, accounts, self.thumbs, self.engine, self.downloaded_index
+        )
         self.replace_page("files", self.files_page)
         self.transfers_view = TransfersView(self.engine)
         self.replace_page("transfers", self.transfers_view)
@@ -153,6 +180,8 @@ class MainWindow(QMainWindow):
         text = i18n.tr(f"sync.state.{status.state}")
         pct = sync_percent(status.progress)
         speed = sync_speed(status.progress)
+        if status.state == "error" and status.progress:
+            self.error_center.report("sync", status.progress)
         if pct is not None:
             text += f" {pct:.0f}%"
         if speed:
@@ -168,6 +197,23 @@ class MainWindow(QMainWindow):
     def _sync_now(self) -> None:
         if self.daemon.installed:
             self.daemon.sync_now()
+
+    def _on_task_done(self, task) -> None:
+        """Скачали файл → индекс офлайн-копий + значок."""
+        if task.kind == "download":
+            self.downloaded_index.add(task.remote_path, task.local_path)
+
+    def _reupload_changed(self, remote_path: str, local_path: str) -> None:
+        """Локально изменили скачанный файл — обновляем копию в облаке."""
+        remote_dir = remote_path.rsplit("/", 1)[0] or "disk:/"
+        self.engine.enqueue_upload([local_path], remote_dir, overwrite=True)
+
+    def _show_errors(self) -> None:
+        from ydx.ui.dialogs.errors_dlg import ErrorsDialog
+
+        dlg = ErrorsDialog(self.error_center, self)
+        dlg.exec()
+        dlg.deleteLater()
 
     # --- страницы (плейсхолдеры M1) ------------------------------------------------
 

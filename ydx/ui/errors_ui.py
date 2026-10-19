@@ -16,6 +16,15 @@ from ydx.core.errors import (
 from ydx.services import i18n
 
 
+_center = None
+
+
+def attach_center(center) -> None:
+    """Подключить центр ошибок: все показанные ошибки попадут и туда."""
+    global _center
+    _center = center
+
+
 def api_error_text(exc: Exception) -> str:
     if isinstance(exc, QuotaUploadLimitError):
         return i18n.tr("err.upload_limit")
@@ -35,6 +44,8 @@ def api_error_text(exc: Exception) -> str:
 
 
 def show_api_error(parent: QWidget | None, exc: Exception, title: str | None = None) -> None:
+    if _center is not None:
+        _center.report("files", api_error_text(exc))
     box = QMessageBox(parent)
     box.setIcon(QMessageBox.Icon.Critical)
     box.setWindowTitle(title or i18n.tr("app.title"))

@@ -48,6 +48,8 @@ class TransferEngine(QObject):
     task_updated = Signal(int)       # id задачи (обновить строку)
     tasks_changed = Signal()         # состав очереди изменился
     batch_done = Signal()            # завершилась пачка (обновить листинг/квоту)
+    task_done = Signal(object)       # TransferTask — успешное завершение
+    task_error = Signal(object)      # TransferTask — ошибка/конфликт/отмена
 
     def __init__(self, accounts) -> None:   # AccountManager
         super().__init__()
@@ -71,7 +73,8 @@ class TransferEngine(QObject):
             raise RuntimeError("no account")
         return resources
 
-    def enqueue_upload(self, local_paths: list[str], remote_dir: str) -> None:
+    def enqueue_upload(self, local_paths: list[str], remote_dir: str,
+                       overwrite: bool = False) -> None:
         """Файлы и папки (рекурсивно) в remote_dir."""
 
         def job():
@@ -94,7 +97,10 @@ class TransferEngine(QObject):
             dirs = sorted({
                 str(Path(remote)) .rsplit("/", 1)[0] for _, remote in jobs
             })
-            run_in_thread(lambda: self._mkdirs(dirs), lambda _r: self._enqueue_files(jobs))
+            run_in_thread(
+                lambda: self._mkdirs(dirs),
+                lambda _r: self._enqueue_files(jobs, overwrite),
+            )
 
         from ydx.services.workers import run_in_thread
 
@@ -118,7 +124,7 @@ class TransferEngine(QObject):
                     pass
                 made.add(acc)
 
-    def _enqueue_files(self, jobs: list[tuple[Path, str]]) -> None:
+    def _enqueue_files(self, jobs: list[tuple[Path, str]], overwrite: bool = False) -> None:
         for path, remote in jobs:
             try:
                 size = path.stat().st_size
@@ -127,6 +133,7 @@ class TransferEngine(QObject):
             task = TransferTask(
                 id=next(self._ids), kind="upload",
                 local_path=str(path), remote_path=remote, size=size,
+                overwrite=overwrite,
             )
             self._tasks.append(task)
             self._queue.append(task)
@@ -258,6 +265,7 @@ class TransferEngine(QObject):
         with self._lock:
             self._active.discard(task.id)
         self.task_updated.emit(task.id)
+        self.task_done.emit(task)
         self._after_step()
 
     def _task_failed(self, task: TransferTask, exc: Exception) -> None:
@@ -273,6 +281,8 @@ class TransferEngine(QObject):
         with self._lock:
             self._active.discard(task.id)
         self.task_updated.emit(task.id)
+        if task.state in ("error", "conflict"):
+            self.task_error.emit(task)
         self._after_step()
 
     @staticmethod
