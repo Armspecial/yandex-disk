@@ -21,6 +21,7 @@ DEFAULTS = {
     "proxy_login": "",
     "proxy_password": "",
     "downloads_dir": "",          # пусто = системная папка «Загрузки»
+    "last_upload_dir": "",
 }
 
 _BOOL = {"true", "false"}

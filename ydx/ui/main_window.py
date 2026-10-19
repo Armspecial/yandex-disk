@@ -69,11 +69,16 @@ class MainWindow(QMainWindow):
         accounts.quota_updated.connect(self.sidebar.set_quota)
         accounts.auth_failed.connect(self._on_auth_failed)
 
-        # реальные разделы (по мере готовности; M2 — файлы)
+        # реальные разделы (по мере готовности; M2 — файлы, M3 — передачи)
+        from ydx.services.transfers import TransferEngine
         from ydx.ui.views.files_page import FilesPage
+        from ydx.ui.views.transfers_view import TransfersView
 
-        self.files_page = FilesPage(settings, accounts, self.thumbs)
+        self.engine = TransferEngine(accounts)
+        self.files_page = FilesPage(settings, accounts, self.thumbs, self.engine)
         self.replace_page("files", self.files_page)
+        self.transfers_view = TransfersView(self.engine)
+        self.replace_page("transfers", self.transfers_view)
 
         self.sidebar.set_secure(True)   # заменяется реальным флагом в app.py
         self.sidebar.set_section("files")

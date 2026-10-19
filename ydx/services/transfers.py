@@ -105,7 +105,8 @@ class TransferEngine(QObject):
         res = self._resources()
         made = set()
         for d in dirs:
-            parts = [p for p in d.split("/") if p]
+            clean = d[len("disk:"):] if d.startswith("disk:") else d
+            parts = [p for p in clean.split("/") if p and p != "disk:"]
             acc = "disk:/"
             for part in parts:
                 acc = acc.rstrip("/") + "/" + part
@@ -173,7 +174,7 @@ class TransferEngine(QObject):
 
     def retry(self, task_id: int, overwrite: bool = False) -> None:
         for t in self._tasks:
-            if t.id == task_id and t.state in ("error", "cancelled"):
+            if t.id == task_id and t.state in ("error", "cancelled", "conflict"):
                 t.state = "queued"
                 t.transferred = 0
                 t.error = None

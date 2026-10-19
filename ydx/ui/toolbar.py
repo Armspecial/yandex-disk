@@ -107,6 +107,8 @@ class FilesToolbar(QWidget):
     view_mode_changed = Signal(str)
     sort_changed = Signal(str)
     new_folder_clicked = Signal()
+    upload_files_clicked = Signal()
+    upload_folder_clicked = Signal()
 
     def __init__(self, parent=None) -> None:
         super().__init__(parent)
@@ -156,6 +158,13 @@ class FilesToolbar(QWidget):
         )
         lay.addWidget(self.sort_combo)
 
+        self.upload_btn = QPushButton()
+        self.upload_btn.setProperty("class", "primary")
+        self.upload_btn.setIcon(icon("upload"))
+        self._upload_menu = None
+        self.upload_btn.clicked.connect(self._show_upload_menu)
+        lay.addWidget(self.upload_btn)
+
         self.new_folder_btn = QPushButton()
         self.new_folder_btn.setProperty("class", "icon")
         self.new_folder_btn.setIcon(icon("folder-plus"))
@@ -167,6 +176,25 @@ class FilesToolbar(QWidget):
         self.list_btn.setChecked(mode == "list")
         self.grid_btn.setChecked(mode == "grid")
         self.view_mode_changed.emit(mode)
+
+    def _show_upload_menu(self) -> None:
+        from PySide6.QtGui import QAction
+        from PySide6.QtWidgets import QMenu
+
+        if self._upload_menu is None:
+            self._upload_menu = QMenu(self)
+            self._act_files = QAction(i18n.tr("transfers.upload_files"), self._upload_menu)
+            self._act_files.triggered.connect(self.upload_files_clicked.emit)
+            self._act_folder = QAction(i18n.tr("transfers.upload_folder"), self._upload_menu)
+            self._act_folder.triggered.connect(self.upload_folder_clicked.emit)
+            self._upload_menu.addAction(self._act_files)
+            self._upload_menu.addAction(self._act_folder)
+        else:
+            self._act_files.setText(i18n.tr("transfers.upload_files"))
+            self._act_folder.setText(i18n.tr("transfers.upload_folder"))
+        self._upload_menu.exec(self.upload_btn.mapToGlobal(
+            self.upload_btn.rect().bottomLeft()
+        ))
 
     def set_mode(self, mode: str) -> None:
         self._view(mode)
@@ -186,6 +214,7 @@ class FilesToolbar(QWidget):
         self.list_btn.setToolTip(i18n.tr("toolbar.view_list"))
         self.grid_btn.setToolTip(i18n.tr("toolbar.view_grid"))
         self.new_folder_btn.setToolTip(i18n.tr("files.new_folder"))
+        self.upload_btn.setText(i18n.tr("btn.upload"))
         for i, (value, key) in enumerate(SORT_VALUES):
             self.sort_combo.setItemText(i, i18n.tr(key))
         self.breadcrumbs.set_path(self.breadcrumbs.path)

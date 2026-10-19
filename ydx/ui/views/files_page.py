@@ -9,6 +9,7 @@ from __future__ import annotations
 from PySide6.QtCore import QSortFilterProxyModel, Qt, Signal
 from PySide6.QtGui import QAction, QGuiApplication
 from PySide6.QtWidgets import (
+    QFileDialog,
     QLabel,
     QMenu,
     QStackedWidget,
@@ -16,6 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
+from ydx.constants import MAX_FREE_UPLOAD
 from ydx.core.api_resources import ResourcesApi
 from ydx.core.errors import ApiError
 from ydx.core.models import Resource
@@ -24,6 +26,7 @@ from ydx.services import i18n, openers
 from ydx.services.accounts import AccountManager
 from ydx.services.settings import AppSettings
 from ydx.services.thumbs import ThumbService
+from ydx.services.transfers import TransferEngine
 from ydx.services.workers import run_in_thread
 from ydx.ui.dialogs.prompts import FolderPickerDialog, PropertiesDialog, ask_name
 from ydx.ui.errors_ui import confirm, show_api_error
@@ -52,16 +55,17 @@ class FilesFilterModel(QSortFilterProxyModel):
 
 
 class FilesPage(QWidget):
-    """Параметры: settings, accounts (для api/квоты), thumbs."""
+    """Параметры: settings, accounts (для api/квоты), thumbs, engine (передачи)."""
 
     def __init__(
         self, settings: AppSettings, accounts: AccountManager, thumbs: ThumbService,
-        parent: QWidget | None = None,
+        engine: TransferEngine, parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._settings = settings
         self._accounts = accounts
         self._thumbs = thumbs
+        self._engine = engine
         self._history: list[str] = []
         self._current = "disk:/"
         self._filter = ""
@@ -101,9 +105,16 @@ class FilesPage(QWidget):
         self.toolbar.view_mode_changed.connect(self._set_mode)
         self.toolbar.sort_changed.connect(self._set_sort)
         self.toolbar.new_folder_clicked.connect(self.new_folder)
+        self.toolbar.upload_files_clicked.connect(self._upload_files_dialog)
+        self.toolbar.upload_folder_clicked.connect(self._upload_folder_dialog)
         self.view.open_requested.connect(self._open)
         self.view.context_menu_requested.connect(self._context_menu)
         self.view.move_requested.connect(self._move_to)
+        self.view.files_dropped.connect(
+            lambda urls: self._enqueue_uploads([u.toLocalFile() for u in urls])
+        )
+        if engine is not None:
+            engine.batch_done.connect(self._after_op)
 
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
@@ -199,6 +210,82 @@ class FilesPage(QWidget):
             lambda _n: self._after_op(),
             lambda exc: show_api_error(self, exc),
         )
+
+    # --- передачи ---------------------------------------------------------------
+
+    def _upload_files_dialog(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        files, _ = QFileDialog.getOpenFileNames(
+            self, i18n.tr("transfers.upload_files"), str(self._last_upload_dir())
+        )
+        if files:
+            self._remember_upload_dir(files[0])
+            self._enqueue_uploads(files)
+
+    def _upload_folder_dialog(self) -> None:
+        from PySide6.QtWidgets import QFileDialog
+
+        folder = QFileDialog.getExistingDirectory(
+            self, i18n.tr("transfers.upload_folder"), str(self._last_upload_dir())
+        )
+        if folder:
+            self._remember_upload_dir(folder)
+            self._enqueue_uploads([folder])
+
+    def _last_upload_dir(self):
+        from pathlib import Path
+
+        return Path(self._settings.get("last_upload_dir") or str(Path.home()))
+
+    def _remember_upload_dir(self, path: str) -> None:
+        self._settings.set("last_upload_dir", path)
+
+    def _enqueue_uploads(self, paths: list[str]) -> None:
+        paths = [p for p in paths if p]
+        if not paths:
+            return
+        if self._has_oversize(paths) and not confirm(
+            self, i18n.tr("transfers.limit_warning")
+        ):
+            return
+        self._engine.enqueue_upload(paths, self._current)
+
+    @staticmethod
+    def _has_oversize(paths: list[str]) -> bool:
+        from pathlib import Path
+
+        for raw in paths:
+            p = Path(raw)
+            try:
+                if p.is_file() and p.stat().st_size > MAX_FREE_UPLOAD:
+                    return True
+                if p.is_dir():
+                    for f in p.rglob("*"):
+                        if f.is_file() and f.stat().st_size > MAX_FREE_UPLOAD:
+                            return True
+            except OSError:
+                continue
+        return False
+
+    def _download_selected(self, resources: list[Resource]) -> None:
+        files = [r for r in resources if not r.is_dir]
+        if not files:
+            return
+        from PySide6.QtWidgets import QFileDialog
+        from PySide6.QtCore import QStandardPaths
+
+        default = self._settings.get("downloads_dir") or QStandardPaths.writableLocation(
+            QStandardPaths.StandardLocation.DownloadLocation
+        )
+        target = QFileDialog.getExistingDirectory(
+            self, i18n.tr("transfers.download_to"), default
+        )
+        if not target:
+            return
+        self._settings.set("downloads_dir", target)
+        for r in files:
+            self._engine.enqueue_download(r, target)
 
     def rename(self, resource: Resource) -> None:
         new_name = ask_name(
@@ -324,6 +411,11 @@ class FilesPage(QWidget):
         act_open = QAction(i18n.tr("ctx.open"), menu)
         act_open.triggered.connect(lambda: self._open(resources[0]))
         menu.addAction(act_open)
+
+        if any(not r.is_dir for r in resources):
+            act_download = QAction(i18n.tr("ctx.download"), menu)
+            act_download.triggered.connect(lambda: self._download_selected(resources))
+            menu.addAction(act_download)
 
         if single is not None and single.public_url:
             act_copy = QAction(i18n.tr("ctx.copy_link"), menu)
