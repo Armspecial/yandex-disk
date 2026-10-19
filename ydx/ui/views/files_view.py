@@ -35,6 +35,7 @@ class FilesDelegate(QStyledItemDelegate):
         super().__init__(parent)
         self.thumbs = thumbs
         self.mode = "list"
+        self.sync_states: dict[str, bool] = {}   # cloud-путь → есть локальная копия
 
     # --- размеры ------------------------------------------------------------------
 
@@ -73,6 +74,7 @@ class FilesDelegate(QStyledItemDelegate):
                           THUMB_LIST, THUMB_LIST)
         pm = self._icon(r, THUMB_LIST, index)
         p.drawPixmap(icon_rect, pm)
+        self._sync_badge(p, icon_rect, r)
         name_x = icon_rect.right() + 14
         date_w, size_w = 150, 90
         name_w = rect.right() - name_x - date_w - size_w - 40
@@ -106,6 +108,7 @@ class FilesDelegate(QStyledItemDelegate):
             rect.top() + 8, THUMB_GRID, THUMB_GRID,
         )
         p.drawPixmap(icon_rect, pm)
+        self._sync_badge(p, icon_rect, r)
         if r.public_url:
             self._badge(p, icon_rect)
         text_top = icon_rect.bottom() + 6
@@ -126,6 +129,19 @@ class FilesDelegate(QStyledItemDelegate):
             if pm is not None:
                 return pm
         return mime.resource_pixmap(r, size)
+
+    def _sync_badge(self, p: QPainter, icon_rect: QRect, r: Resource) -> None:
+        """Зелёная галочка: копия уже на компьютере (синхронизировано)."""
+        if not self.sync_states or not self.sync_states.get(r.path):
+            return
+        d = 12
+        x, y = icon_rect.left() - 2, icon_rect.bottom() - d
+        p.setPen(Qt.PenStyle.NoPen)
+        p.setBrush(QColor("#1DA740"))
+        p.drawEllipse(x, y, d, d)
+        p.setPen(QPen(QColor("#FFFFFF"), 2))
+        p.drawLine(x + 3, y + 6, x + 5, y + 8)
+        p.drawLine(x + 5, y + 8, x + 9, y + 3)
 
     def _badge(self, p: QPainter, icon_rect: QRect) -> None:
         """Значок «опубликовано» — маленькая точка-ссылка в углу иконки."""
@@ -179,6 +195,10 @@ class FilesView(QListView):
             self.setGridSize(QSize())
             self.setSpacing(0)
         self.reset()
+
+    def set_sync_states(self, states: dict[str, bool]) -> None:
+        self._delegate.sync_states = states
+        self.viewport().update()
 
     def set_vertical_scroll_mode(self) -> None:
         self.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)

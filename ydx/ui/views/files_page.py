@@ -93,6 +93,14 @@ class FilesPage(QWidget):
         self.stack.addWidget(self.empty_label)    # 2 — пусто/нет совпадений
         col.addWidget(self.stack, 1)
 
+        # полоса «есть только на компьютере» (не выгружено в облако)
+        self.local_strip = QLabel()
+        self.local_strip.setObjectName("statusChip")
+        self.local_strip.setWordWrap(True)
+        self.local_strip.setMargin(8)
+        self.local_strip.hide()
+        col.addWidget(self.local_strip)
+
         self._mode = settings.get("view_mode")
         self._sort = settings.get("sort")
         self.view.set_mode(self._mode)
@@ -119,6 +127,21 @@ class FilesPage(QWidget):
 
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
+
+        # значки синхронизации — после прихода данных, с дебаунсом
+        # (modelReset и rowsInserted стреляют до/во время вставки)
+        from PySide6.QtCore import QTimer
+
+        self._sync_refresh_timer = QTimer(self)
+        self._sync_refresh_timer.setSingleShot(True)
+        self._sync_refresh_timer.setInterval(60)
+        self._sync_refresh_timer.timeout.connect(self._refresh_sync_states)
+        self.model.modelReset.connect(lambda: self._sync_refresh_timer.start())
+        self.model.rowsInserted.connect(lambda *_: self._sync_refresh_timer.start())
+
+        from ydx.services.sync_state import LocalSyncIndex
+
+        self._sync_index = LocalSyncIndex(self)
 
         i18n.register(self.retranslate)
 
@@ -185,6 +208,48 @@ class FilesPage(QWidget):
             self.stack.setCurrentWidget(self.empty_label)
         else:
             self.stack.setCurrentWidget(self.view)
+
+    # --- значки синхронизации и «только на компьютере» ------------------------
+
+    def _refresh_sync_states(self) -> None:
+        """Сравнить облако с локальной папкой: значки + полоса local-only."""
+        if not self._sync_index.is_configured():
+            self.view.set_sync_states({})
+            self.local_strip.hide()
+            return
+        if self.model.loading:
+            self._sync_refresh_timer.start()   # данные ещё грузятся — подождём
+            return
+        resources = list(self.model.items)
+
+        def job():
+            index = self._sync_index
+            states = {r.path: index.exists_locally(r.path) for r in resources}
+            cloud_names = {r.name for r in resources}
+            local_only = [
+                (name, is_dir)
+                for name, is_dir in index.local_only_for(self._current)
+                if name not in cloud_names
+            ]
+            return states, local_only
+
+        def done(result) -> None:
+            states, local_only = result
+            self.view.set_sync_states(states)
+            if local_only:
+                names = ", ".join(
+                    (n + "/" if d else n) for n, d in local_only[:12]
+                )
+                more = len(local_only) - 12
+                text = i18n.tr("sync.local_only") + ": " + names
+                if more > 0:
+                    text += i18n.tr("sync.local_only_more", n=more)
+                self.local_strip.setText(text)
+                self.local_strip.show()
+            else:
+                self.local_strip.hide()
+
+        run_in_thread(job, done, lambda _e: None)
 
     # --- действия --------------------------------------------------------------
 

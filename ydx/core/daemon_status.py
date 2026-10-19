@@ -97,6 +97,21 @@ PAYWALL_MARKERS = ("subscription", "подписк", "yandex 360", "360 subscrip
 # ошибки, которые на деле означают «демонд не работает/не настроен»
 STOPPED_ERROR_MARKERS = ("not started", "is missing", "не запущен")
 
+_PERCENT_RE = re.compile(r"(\d+(?:[.,]\d+)?)\s*%")
+_SPEED_RE = re.compile(r"\(([\d.,]+\s*[KMG]?B/s)\)", re.I)
+
+
+def sync_percent(progress: str) -> float | None:
+    """«45% (10.5 MB/s)» → 45.0"""
+    m = _PERCENT_RE.search(progress or "")
+    return float(m.group(1).replace(",", ".")) if m else None
+
+
+def sync_speed(progress: str) -> str:
+    """«45% (10.5 MB/s)» → «10.5 MB/s»"""
+    m = _SPEED_RE.search(progress or "")
+    return m.group(1) if m else ""
+
 
 def looks_like_paywall(status: DaemonStatus) -> bool:
     """Эвристика: ошибка демона, похожая на требование подписки Яндекс 360.

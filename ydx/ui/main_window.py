@@ -23,7 +23,7 @@ from ydx.services.accounts import AVATAR_COLORS, AccountManager
 from ydx.services.settings import AppSettings
 from ydx.ui.dialogs.login import LoginDialog
 from ydx.ui.sidebar import SECTIONS, Sidebar
-from ydx.ui.widgets import make_avatar
+from ydx.ui.widgets import icon, make_avatar
 
 PLACEHOLDER_PAGES = ("files", "recent", "photos", "shares", "transfers", "trash")
 
@@ -54,6 +54,34 @@ class MainWindow(QMainWindow):
             self._pages[key] = page
             self.stack.addWidget(page)
         layout.addWidget(self.stack, 1)
+
+        # --- нижний баннер синхронизации: проценты и скорость ------------------
+        from PySide6.QtWidgets import QHBoxLayout as _HBox
+        from PySide6.QtWidgets import QProgressBar, QPushButton as _Btn
+
+        self.sync_banner = QWidget()
+        self.sync_banner.setObjectName("syncBanner")
+        banner_lay = _HBox(self.sync_banner)
+        banner_lay.setContentsMargins(14, 6, 14, 6)
+        banner_lay.setSpacing(10)
+        self.sync_banner_label = QLabel()
+        self.sync_banner_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.sync_banner_label.setObjectName("dialogHint")
+        self.sync_banner_bar = QProgressBar()
+        self.sync_banner_bar.setTextVisible(False)
+        self.sync_banner_bar.setFixedHeight(6)
+        self.sync_banner_bar.setFixedWidth(220)
+        self.sync_banner_sync_btn = _Btn()
+        self.sync_banner_sync_btn.setProperty("class", "icon")
+        self.sync_banner_sync_btn.setIcon(icon("refresh"))
+        self.sync_banner_sync_btn.clicked.connect(self._sync_now)
+        self.sync_banner_label.mousePressEvent = lambda _e: self.show_sync_dialog()
+        banner_lay.addWidget(self.sync_banner_label, 1)
+        banner_lay.addWidget(self.sync_banner_bar)
+        banner_lay.addWidget(self.sync_banner_sync_btn)
+        self.sync_banner.hide()
+        layout.addWidget(self.sync_banner)
+
         self.setCentralWidget(central)
 
         # сервис превью (общий для разделов)
@@ -75,6 +103,7 @@ class MainWindow(QMainWindow):
         self.daemon.availability_changed.connect(self.sidebar.sync_btn.setVisible)
         if self.daemon.installed:
             self.daemon.watch()
+            self.daemon.status_updated.connect(self._on_daemon_status_banner)
         self.tray = TrayController(self, accounts, self.daemon)
 
         accounts.accounts_changed.connect(self._on_accounts_changed)
@@ -112,6 +141,33 @@ class MainWindow(QMainWindow):
         self.sidebar.set_section("files")
         i18n.register(self.retranslate)
         self.retranslate()
+
+    def _on_daemon_status_banner(self, status) -> None:
+        """Нижний баннер: проценты и скорость, пока идёт синхронизация."""
+        active = status.state in ("busy", "index")
+        self.sync_banner.setVisible(active)
+        if not active:
+            return
+        from ydx.core.daemon_status import sync_percent, sync_speed
+
+        text = i18n.tr(f"sync.state.{status.state}")
+        pct = sync_percent(status.progress)
+        speed = sync_speed(status.progress)
+        if pct is not None:
+            text += f" {pct:.0f}%"
+        if speed:
+            text += f" · {speed}"
+        self.sync_banner_label.setText(text)
+        if pct is None:
+            self.sync_banner_bar.setRange(0, 0)      # неопределённый прогресс
+            self.sync_banner_bar.setValue(0)
+        else:
+            self.sync_banner_bar.setRange(0, 100)
+            self.sync_banner_bar.setValue(int(pct))
+
+    def _sync_now(self) -> None:
+        if self.daemon.installed:
+            self.daemon.sync_now()
 
     # --- страницы (плейсхолдеры M1) ------------------------------------------------
 
@@ -204,7 +260,8 @@ class MainWindow(QMainWindow):
 
         from ydx.ui.dialogs.settings_dlg import SettingsDialog
 
-        dlg = SettingsDialog(self._settings, QApplication.instance(), self)
+        dlg = SettingsDialog(self._settings, QApplication.instance(), self,
+                             daemon=self.daemon)
         dlg.set_secure(self._token_secure)
         dlg.exec()
 

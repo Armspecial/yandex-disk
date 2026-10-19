@@ -203,5 +203,9 @@
   "viewer.loading_video": "Скачиваю видео для просмотра…",
   "viewer.video_error": "Не удалось воспроизвести видео",
   "viewer.play": "Воспроизвести",
-  "viewer.pause": "Пауза"
+  "viewer.pause": "Пауза",
+  "sync.sync_now": "Синхронизировать сейчас",
+  "sync.local_only": "Есть только на компьютере (ждёт выгрузки)",
+  "sync.local_only_more": " и ещё {n}",
+  "sync.synced_badge": "Синхронизировано"
 }

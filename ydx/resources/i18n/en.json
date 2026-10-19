@@ -203,5 +203,9 @@
   "viewer.loading_video": "Downloading video for playback…",
   "viewer.video_error": "Could not play the video",
   "viewer.play": "Play",
-  "viewer.pause": "Pause"
+  "viewer.pause": "Pause",
+  "sync.sync_now": "Sync now",
+  "sync.local_only": "On computer only (pending upload)",
+  "sync.local_only_more": " and {n} more",
+  "sync.synced_badge": "Synced"
 }

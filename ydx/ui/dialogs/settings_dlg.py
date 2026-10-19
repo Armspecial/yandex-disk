@@ -8,6 +8,7 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
+    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -34,10 +35,11 @@ AUTOSTART_DESKTOP = (
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, settings: AppSettings, app, parent=None) -> None:
+    def __init__(self, settings: AppSettings, app, parent=None, daemon=None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._app = app
+        self._daemon = daemon
 
         self.setModal(True)
         self.setMinimumSize(480, 520)
@@ -81,6 +83,24 @@ class SettingsDialog(QDialog):
 
         col.addWidget(general)
 
+        # синхронизация: папку можно поменять в любой момент
+        if self._daemon is not None and self._daemon.installed:
+            sync_box = QGroupBox(i18n.tr("sync.title"))
+            self._sync_box = sync_box
+            srow = QHBoxLayout(sync_box)
+            self.sync_folder_label = QLabel()
+            self.sync_folder_label.setObjectName("dialogHint")
+            change_btn = QPushButton(i18n.tr("sync.change_folder"))
+            change_btn.clicked.connect(self._change_sync_folder)
+            self.sync_now_btn = QPushButton(i18n.tr("sync.sync_now"))
+            self.sync_now_btn.setProperty("class", "primary")
+            self.sync_now_btn.clicked.connect(self._daemon.sync_now)
+            srow.addWidget(self.sync_folder_label, 1)
+            srow.addWidget(change_btn)
+            srow.addWidget(self.sync_now_btn)
+            col.addWidget(sync_box)
+            self._update_sync_folder_label()
+
         # хранилище токенов
         storage = QGroupBox(i18n.tr("settings.account"))
         self._account_box = storage
@@ -122,6 +142,38 @@ class SettingsDialog(QDialog):
         i18n.set_language(value)
         apply_theme(self._app, self._settings.theme)   # QSS после смены языка перечитать
 
+    # --- синхронизация ------------------------------------------------------------
+
+    def _update_sync_folder_label(self) -> None:
+        from ydx.services.sync_state import LocalSyncIndex
+
+        directory = LocalSyncIndex.sync_dir()
+        self.sync_folder_label.setText(
+            i18n.tr("sync.folder") + ": " + directory if directory
+            else i18n.tr("sync.setup_hint")
+        )
+
+    def _change_sync_folder(self) -> None:
+        from ydx.core.daemon_config import read_config
+        from ydx.constants import DAEMON_CONFIG_FILE
+        from ydx.ui.errors_ui import confirm
+
+        current = read_config(DAEMON_CONFIG_FILE).get("dir", "")
+        folder = QFileDialog.getExistingDirectory(
+            self, i18n.tr("sync.choose_folder"), current or str(Path.home())
+        )
+        if not folder:
+            return
+        self._daemon.apply_config({"dir": folder})
+        self._update_sync_folder_label()
+        # конфиг демона читается при старте — предложить перезапуск
+        if confirm(self, i18n.tr("sync.restart_needed")):
+            self._daemon.stop()
+
+            from PySide6.QtCore import QTimer
+
+            QTimer.singleShot(1500, self._daemon.start)
+
     def _autostart_toggled(self, on: bool) -> None:
         AUTOSTART_FILE.parent.mkdir(parents=True, exist_ok=True)
         if on:
@@ -143,6 +195,10 @@ class SettingsDialog(QDialog):
         self.set_secure(getattr(self, "_secure", True))
         self._general_box.setTitle(i18n.tr("settings.general"))
         self._account_box.setTitle(i18n.tr("settings.account"))
+        if hasattr(self, "_sync_box"):
+            self._sync_box.setTitle(i18n.tr("sync.title"))
+            self.sync_now_btn.setText(i18n.tr("sync.sync_now"))
+            self._update_sync_folder_label()
         self._theme_row.setText(i18n.tr("settings.theme"))
         self._lang_row.setText(i18n.tr("settings.language"))
         for value, key in (("system", "settings.theme.system"),

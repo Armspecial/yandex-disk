@@ -118,6 +118,12 @@ class DaemonController(QObject):
         self.cancel_pause()   # явный стоп отменяет автозапуск паузы
         self._run(["stop", "-c", str(DAEMON_CONFIG_FILE)])
 
+    def sync_now(self) -> None:
+        """Разовая синхронизация (yandex-disk sync)."""
+        if not self.config().get("dir"):
+            self.ensure_config()
+        self._run(["sync", "-c", str(DAEMON_CONFIG_FILE)])
+
     def pause_for(self, hours: float) -> None:
         """Демонд не умеет паузу: стоп + автозапуск по таймеру."""
         self._run(["stop", "-c", str(DAEMON_CONFIG_FILE)])

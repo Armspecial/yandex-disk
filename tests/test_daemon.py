@@ -10,7 +10,22 @@ from ydx.core.daemon_config import (
     read_config,
     write_config,
 )
-from ydx.core.daemon_status import looks_like_paywall, parse_size, parse_status
+from ydx.core.daemon_status import (
+    looks_like_paywall,
+    parse_size,
+    parse_status,
+    sync_percent,
+    sync_speed,
+)
+
+
+def test_sync_percent_and_speed():
+    assert sync_percent("45% (10.5 MB/s)") == 45.0
+    assert sync_percent("3,5% (120 KB/s)") == 3.5
+    assert sync_percent("без процентов") is None
+    assert sync_percent("") is None
+    assert sync_speed("45% (10.5 MB/s)") == "10.5 MB/s"
+    assert sync_speed("45%") == ""
 
 
 def test_parse_size_units():

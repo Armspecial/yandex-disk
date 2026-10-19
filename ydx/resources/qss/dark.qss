@@ -227,3 +227,7 @@ QFrame#methodRow QLabel { background: transparent; }
 
 /* --- Прозрачность контейнеров-обёрток -------------------------------------------- */
 #sidebar QWidget, QFrame#methodRow QWidget, #accountBtn QWidget { background: transparent; }
+
+/* --- Нижний баннер синхронизации -------------------------------------------------- */
+#syncBanner { background: #2E2A1E; border-top: 1px solid #4A4230; }
+#syncBanner QLabel { background: transparent; }
