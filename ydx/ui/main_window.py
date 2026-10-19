@@ -114,6 +114,7 @@ class MainWindow(QMainWindow):
         # реальные разделы (M2 — файлы, M3 — передачи, M4 — корзина/общие/фото/недавние)
         from ydx.services.downloaded_index import DownloadedIndex
         from ydx.services.error_center import ErrorCenter
+        from ydx.services.state_service import StateService
         from ydx.services.transfers import TransferEngine
         from ydx.ui.errors_ui import attach_center
         from ydx.ui.views.files_page import FilesPage
@@ -159,6 +160,8 @@ class MainWindow(QMainWindow):
             lambda: self.files_page._sync_refresh_timer.start()
         )
 
+        self.state_service = StateService(self.downloaded_index, self.failed_index, self)
+
         self.files_page = FilesPage(
             settings, accounts, self.thumbs, self.engine,
             self.downloaded_index, self.failed_index,
@@ -166,12 +169,12 @@ class MainWindow(QMainWindow):
         self.replace_page("files", self.files_page)
         self.transfers_view = TransfersView(self.engine)
         self.replace_page("transfers", self.transfers_view)
-        self.recent_page = RecentPage(accounts, self.thumbs)
+        self.recent_page = RecentPage(accounts, self.thumbs, self.state_service)
         self.recent_page.show_in_folder_requested.connect(self._show_in_folder)
         self.replace_page("recent", self.recent_page)
-        self.photos_page = PhotosPage(accounts, self.thumbs)
+        self.photos_page = PhotosPage(accounts, self.thumbs, self.state_service)
         self.replace_page("photos", self.photos_page)
-        self.shares_page = SharesPage(accounts, self.thumbs)
+        self.shares_page = SharesPage(accounts, self.thumbs, self.state_service)
         self.replace_page("shares", self.shares_page)
         self.trash_page = TrashPage(accounts, self.thumbs)
         self.replace_page("trash", self.trash_page)
@@ -325,8 +328,8 @@ class MainWindow(QMainWindow):
     def show_login(self) -> None:
         dialog = LoginDialog(self._settings, self)
         if dialog.exec() and dialog.result_data:
-            bundle, _login, display_name = dialog.result_data
-            self._accounts.add_account(bundle, display_name)
+            bundle, _login, display_name, avatar_url = dialog.result_data
+            self._accounts.add_account(bundle, display_name, avatar_url=avatar_url)
 
     def _open_settings(self) -> None:
         from PySide6.QtWidgets import QApplication

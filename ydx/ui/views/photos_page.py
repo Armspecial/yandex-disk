@@ -47,10 +47,12 @@ def group_albums(resources: list[Resource]) -> list[dict]:
 
 
 class PhotosPage(QWidget):
-    def __init__(self, accounts: AccountManager, thumbs: ThumbService, parent=None) -> None:
+    def __init__(self, accounts: AccountManager, thumbs: ThumbService,
+                 state_service=None, parent=None) -> None:
         super().__init__(parent)
         self._accounts = accounts
         self._thumbs = thumbs
+        self._state = state_service
         self._albums: list[dict] = []
 
         col = QVBoxLayout(self)
@@ -75,6 +77,16 @@ class PhotosPage(QWidget):
         self.back_btn.hide()
         hlay.addWidget(self.back_btn)
 
+        # сортировка фото: дата / размер / имя (прокси вешается после создания вида)
+        from PySide6.QtWidgets import QComboBox
+
+        self.sort_combo = QComboBox()
+        for value, key in (("modified", "photos.sort.date"),
+                           ("size", "photos.sort.size"),
+                           ("name", "photos.sort.name")):
+            self.sort_combo.addItem(i18n.tr(key), value)
+        hlay.addWidget(self.sort_combo)
+
         self.all_btn = QPushButton()
         self.all_btn.setCheckable(True)
         self.albums_btn = QPushButton()
@@ -90,9 +102,17 @@ class PhotosPage(QWidget):
         # сетка фото: все (ленивая модель) или один альбом (статическая)
         self.model = ResourceListModel(self)
         self.album_photos_model = ResourceListModel(self)
-        self.view = FilesView(self.model, thumbs)
+
+        from ydx.ui.views.resource_list import ResourceSortProxy
+
+        self.sort_proxy = ResourceSortProxy(self)
+        self.sort_proxy.setSourceModel(self.model)
+        self.view = FilesView(self.sort_proxy, thumbs)
         self.view.set_mode("grid")
         self.stack.addWidget(self.view)
+        self.sort_combo.currentIndexChanged.connect(
+            lambda idx: self.sort_proxy.set_sort_key(self.sort_combo.itemData(idx))
+        )
 
         # сетка альбомов
         self.albums_model = ResourceListModel(self)
@@ -113,6 +133,17 @@ class PhotosPage(QWidget):
         self.albums_view.open_requested.connect(self._open_album)
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
+
+        # значки состояний (offline/synced/cloud/error) — как в Файлах
+        from PySide6.QtCore import QTimer
+
+        self._badges_timer = QTimer(self)
+        self._badges_timer.setSingleShot(True)
+        self._badges_timer.setInterval(80)
+        self._badges_timer.timeout.connect(self._refresh_badges)
+        self.model.rowsInserted.connect(lambda *_: self._badges_timer.start())
+        if self._state is not None:
+            self._state.states_changed.connect(self._badges_timer.start)
 
         i18n.register(self.retranslate)
         self.retranslate()
@@ -143,8 +174,8 @@ class PhotosPage(QWidget):
             self._show_albums()
         else:
             # вернуть ленивую модель «все фото» (после альбома view смотрел на подмножество)
-            if self.view.model() is not self.model:
-                self.view.setModel(self.model)
+            if self.view.model() is not self.sort_proxy:
+                self.view.setModel(self.sort_proxy)
             self._update_states()
 
     def _show_albums(self) -> None:
@@ -178,6 +209,21 @@ class PhotosPage(QWidget):
             f"{resource.name} · " + i18n.tr("photos.album_count", n=len(photos))
         )
 
+    def _refresh_badges(self) -> None:
+        if self._state is None:
+            return
+        items = self.model.items
+
+        def job():
+            return self._state.compute(items)[0]
+
+        def done(states) -> None:
+            self.view.set_item_states(states)
+
+        from ydx.services.workers import run_in_thread
+
+        run_in_thread(job, done, lambda _e: None)
+
     def _update_states(self) -> None:
         if self._mode == "albums":
             return
@@ -192,7 +238,10 @@ class PhotosPage(QWidget):
     # --- просмотр --------------------------------------------------------------------
 
     def _open_photo(self, resource: Resource) -> None:
-        items = self.model.items if self.view.model() is self.model else self.album_photos_model.items
+        items = (
+            self.model.items if self.view.model() is self.sort_proxy
+            else self.album_photos_model.items
+        )
         index = 0
         for i, r in enumerate(items):
             if r.path == resource.path:
@@ -234,3 +283,8 @@ class PhotosPage(QWidget):
         self.albums_btn.setText(i18n.tr("photos.albums"))
         self.back_btn.setText(i18n.tr("photos.back_albums"))
         self.counter.setText(i18n.tr("photos.count", n=self.model.rowCount()))
+        for value, key in (("modified", "photos.sort.date"),
+                           ("size", "photos.sort.size"),
+                           ("name", "photos.sort.name")):
+            idx = [self.sort_combo.itemData(i) for i in range(3)].index(value)
+            self.sort_combo.setItemText(idx, i18n.tr(key))

@@ -28,6 +28,9 @@ DEVICE_URL = OAUTH_BASE + "/device/code"
 TOKEN_URL = OAUTH_BASE + "/token"
 AUTHORIZE_URL = OAUTH_BASE + "/authorize"
 
+# логин/имя/аватар — выдаётся опционально; без права вход всё равно работает
+OPTIONAL_SCOPES = "login:info"
+
 USER_AGENT = "yandex-disk-linux"
 
 
@@ -46,6 +49,7 @@ class OAuthClient:
             "client_id": self.client_id,
             "redirect_uri": REDIRECT_URI,
             "scope": SCOPES,
+            "optional_scope": OPTIONAL_SCOPES,   # логин/имя/аватар — если право выдано
             "state": state,
             "force_confirm": "yes",
         }
@@ -69,6 +73,7 @@ class OAuthClient:
                 "client_id": self.client_id,
                 "device_id": device_id,
                 "device_name": device_name,
+                "optional_scope": OPTIONAL_SCOPES,
             },
             timeout=20,
         )
@@ -151,8 +156,12 @@ class OAuthClient:
         )
 
     @staticmethod
-    def fetch_login(access_token: str) -> tuple[str | None, str]:
-        """Логин/имя через Яндекс ID (если прав не выдано — (None, ''))."""
+    def fetch_login(access_token: str) -> tuple[str | None, str, str]:
+        """Логин/имя/URL-аватара через Яндекс ID.
+
+        Если у OAuth-приложения не выдано право login:info — (None, '', '').
+        Аватар: https://avatars.yandex.net/get-yapic/<id>/islands-retina-50
+        """
         try:
             r = requests.get(
                 LOGIN_INFO_URL,
@@ -161,10 +170,16 @@ class OAuthClient:
             )
             if r.status_code == 200:
                 d = r.json()
-                return d.get("login"), (d.get("display_name") or d.get("real_name") or "")
+                login = d.get("login")
+                name = d.get("display_name") or d.get("real_name") or ""
+                avatar = ""
+                avatar_id = d.get("default_avatar_id")
+                if avatar_id:
+                    avatar = f"https://avatars.yandex.net/get-yapic/{avatar_id}/islands-retina-50"
+                return login, name, avatar
         except requests.RequestException:
             pass
-        return None, ""
+        return None, "", ""
 
 
 @dataclass(frozen=True)

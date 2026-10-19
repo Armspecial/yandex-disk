@@ -23,6 +23,7 @@ class Account:
     login: str                      # идентификатор аккаунта (уникальный)
     display_name: str = ""
     color_index: int = 0            # индекс цвета аватара из инициалов
+    avatar_url: str = ""            # аватар Яндекс ID (если выдано право login:info)
 
     @property
     def title(self) -> str:

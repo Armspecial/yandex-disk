@@ -248,6 +248,7 @@ class FilesPage(QWidget):
             failed = self._failed
             sync_index = self._sync_index
             sync_on = sync_index.is_configured()
+            failed_paths = failed.paths if failed is not None else []
             states: dict[str, str] = {}
             for r in resources:
                 if failed is not None and failed.has(r.path):
@@ -258,6 +259,13 @@ class FilesPage(QWidget):
                     states[r.path] = "synced"
                 else:
                     states[r.path] = "cloud"
+            # файл с ошибкой лежит в папке — папка (и все родители повыше) тоже с ✖
+            for r in resources:
+                if not r.is_dir:
+                    continue
+                prefix = r.path.rstrip("/") + "/"
+                if any(fp.startswith(prefix) for fp in failed_paths):
+                    states[r.path] = "error"
             local_only = []
             if sync_on:
                 cloud_names = {r.name for r in resources}

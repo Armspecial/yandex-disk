@@ -346,8 +346,8 @@ class LoginDialog(QDialog):
             return OAuthClient.fetch_login(bundle.access_token)
 
         def done(data):
-            login, display_name = data
-            self.result_data = (bundle, login, display_name or "")
+            login, display_name, avatar_url = data
+            self.result_data = (bundle, login, display_name or "", avatar_url or "")
             self.accept()
 
         run_in_thread(job, done, self._show_error_exc)

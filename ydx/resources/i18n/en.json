@@ -232,5 +232,8 @@
   "toolbar.free_up": "Free up space",
   "files.free_up_confirm": "Delete local copies of selected files ({n})? They remain in the cloud.",
   "files.free_up_none": "No downloaded files in selection",
-  "files.free_up_skipped_synced": "Skipped {n}: files in the daemon sync folder (managed by sync)"
+  "files.free_up_skipped_synced": "Skipped {n}: files in the daemon sync folder (managed by sync)",
+  "photos.sort.date": "By date",
+  "photos.sort.size": "By size",
+  "photos.sort.name": "By name"
 }

@@ -26,10 +26,12 @@ from ydx.ui.views.resource_list import ResourceListModel
 class RecentPage(QWidget):
     show_in_folder_requested = Signal(str)   # путь родительской папки
 
-    def __init__(self, accounts: AccountManager, thumbs: ThumbService, parent=None) -> None:
+    def __init__(self, accounts: AccountManager, thumbs: ThumbService,
+                 state_service=None, parent=None) -> None:
         super().__init__(parent)
         self._accounts = accounts
         self._thumbs = thumbs
+        self._state = state_service
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
@@ -61,6 +63,29 @@ class RecentPage(QWidget):
         self.view.context_menu_requested.connect(self._context_menu)
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
+
+        # значки состояний — как в Файлах
+        from PySide6.QtCore import QTimer
+
+        self._badges_timer = QTimer(self)
+        self._badges_timer.setSingleShot(True)
+        self._badges_timer.setInterval(80)
+        self._badges_timer.timeout.connect(self._refresh_badges)
+        if self._state is not None:
+            self._state.states_changed.connect(self._badges_timer.start)
+        self._badges_timer.start()
+
+    def _refresh_badges(self) -> None:
+        if self._state is None:
+            return
+
+        def job():
+            return self._state.compute(self.model.items)[0]
+
+        def done(states) -> None:
+            self.view.set_item_states(states)
+
+        run_in_thread(job, done, lambda _e: None)
 
         i18n.register(self.retranslate)
         self.retranslate()

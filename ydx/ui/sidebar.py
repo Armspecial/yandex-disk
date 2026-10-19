@@ -31,6 +31,32 @@ SECTIONS = [
 ]
 
 
+def _rounded_pixmap(source, logical_size: int, dpr: int = 2):
+    """Круглая аватарка: рисуем в 2x и скругляем до круга."""
+    from PySide6.QtCore import QRectF
+    from PySide6.QtGui import QPainter, QPainterPath, QPixmap
+
+    px = logical_size * dpr
+    out = QPixmap(px, px)
+    out.setDevicePixelRatio(dpr)
+    out.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(out)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    path = QPainterPath()
+    path.addEllipse(QRectF(0, 0, logical_size, logical_size))
+    painter.setClipPath(path)
+    scaled = source.scaled(
+        logical_size, logical_size,
+        Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+        Qt.TransformationMode.SmoothTransformation,
+    )
+    x = (scaled.width() - logical_size) / 2
+    y = (scaled.height() - logical_size) / 2
+    painter.drawPixmap(-int(x), -int(y), scaled)
+    painter.end()
+    return out
+
+
 class Sidebar(QFrame):
     section_changed = Signal(str)
     account_requested = Signal(QPoint)   # глобальная позиция — открыть меню аккаунта
@@ -151,11 +177,67 @@ class Sidebar(QFrame):
             self.account_name.setText(i18n.tr("account.add"))
             self.account_login.setText("")
             return
-        self.avatar_label.setPixmap(make_avatar(
-            account.title, AVATAR_COLORS[account.color_index % len(AVATAR_COLORS)]
-        ))
+        if account.avatar_url:
+            self._load_avatar(account)
+        else:
+            self.avatar_label.setPixmap(make_avatar(
+                account.title, AVATAR_COLORS[account.color_index % len(AVATAR_COLORS)]
+            ))
         self.account_name.setText(account.title)
         self.account_login.setText(account.login if account.login else "")
+
+    def _load_avatar(self, account: Account) -> None:
+        """Настоящий аватар Яндекс ID: кэш на диске + круглая обрезка."""
+        import hashlib
+        import json
+        from pathlib import Path
+
+        from PySide6.QtGui import QPainter, QPainterPath, QPixmap as _QPixmap
+        from ydx.constants import CACHE_DIR
+        from ydx.services.workers import run_in_thread
+
+        cache = CACHE_DIR / "avatars" / (
+            hashlib.md5(account.avatar_url.encode()).hexdigest() + ".png"
+        )
+        if cache.exists():
+            self._apply_round_avatar(_QPixmap(str(cache)))
+            return
+
+        def job():
+            import requests
+
+            resp = requests.get(account.avatar_url, timeout=20)
+            if resp.status_code != 200:
+                raise RuntimeError("avatar http error")
+            cache.parent.mkdir(parents=True, exist_ok=True)
+            cache.write_bytes(resp.content)
+            return str(cache)
+
+        run_in_thread(
+            job,
+            lambda path: self._apply_round_avatar(_QPixmap(path)),
+            lambda _e: self.avatar_label.setPixmap(make_avatar(
+                account.title, AVATAR_COLORS[account.color_index % len(AVATAR_COLORS)]
+            )),
+        )
+
+    def _apply_round_avatar(self, pm) -> None:
+        if pm.isNull():
+            return
+        size = 36
+        square = pm.scaled(
+            size, size,
+            Qt.AspectRatioMode.KeepAspectRatioByExpanding,
+            Qt.TransformationMode.SmoothTransformation,
+        )
+        # центрируем и вырезаем квадрат
+        from PySide6.QtCore import QPoint
+
+        side = min(square.width(), square.height())
+        square = square.copy(
+            (square.width() - side) // 2, (square.height() - side) // 2, side, side
+        )
+        self.avatar_label.setPixmap(_rounded_pixmap(square, size))
 
     def set_quota(self, quota: Quota | None) -> None:
         if quota is None or quota.total <= 0:

@@ -86,6 +86,7 @@ class AccountManager(QObject):
                 login=a.get("login", ""),
                 display_name=a.get("display_name", ""),
                 color_index=a.get("color_index", i),
+                avatar_url=a.get("avatar_url", ""),
             )
             for i, a in enumerate(raw)
         ]
@@ -96,7 +97,12 @@ class AccountManager(QObject):
             "accounts",
             json.dumps(
                 [
-                    {"login": a.login, "display_name": a.display_name, "color_index": a.color_index}
+                    {
+                        "login": a.login,
+                        "display_name": a.display_name,
+                        "color_index": a.color_index,
+                        "avatar_url": a.avatar_url,
+                    }
                     for a in self.accounts
                 ],
                 ensure_ascii=False,
@@ -138,12 +144,21 @@ class AccountManager(QObject):
 
     # --- действия -------------------------------------------------------------------
 
-    def add_account(self, bundle: TokenBundle, display_name: str) -> Account:
+    def add_account(self, bundle: TokenBundle, display_name: str,
+                    avatar_url: str = "") -> Account:
         login = bundle.login or f"account-{uuid.uuid4().hex[:8]}"
         # если такой логин уже добавлен — перезаписываем токены (перезалогин)
         existing = next((a for a in self.accounts if a.login == login), None)
         if existing is not None:
             account = existing
+            if display_name or avatar_url:   # обновить имя/аватар, если удалось узнать
+                account = Account(
+                    login=existing.login,
+                    display_name=display_name or existing.display_name,
+                    color_index=existing.color_index,
+                    avatar_url=avatar_url or existing.avatar_url,
+                )
+                self.accounts[self.accounts.index(existing)] = account
         elif len(self.accounts) >= MAX_ACCOUNTS:
             raise AuthError("Достигнут лимит аккаунтов (2)")
         else:
@@ -151,6 +166,7 @@ class AccountManager(QObject):
                 login=login,
                 display_name=display_name,
                 color_index=len(self.accounts) % len(AVATAR_COLORS),
+                avatar_url=avatar_url,
             )
             self.accounts.append(account)
         self._store.save(login, {
