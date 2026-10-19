@@ -237,5 +237,9 @@
   "photos.sort.size": "By size",
   "photos.sort.name": "By name",
   "login.welcome_hint": "Press the button — a Yandex page opens, confirm sign-in. No tokens to paste.",
-  "login.own_key": "Use my own OAuth key…"
+  "login.own_key": "Use my own OAuth key…",
+  "settings.logout": "Sign out",
+  "settings.no_account": "Not signed in",
+  "settings.current_account": "Current account",
+  "settings.logout_confirm": "Sign out of “{name}”? The token will be removed from storage."
 }

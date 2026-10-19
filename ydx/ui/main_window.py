@@ -340,9 +340,12 @@ class MainWindow(QMainWindow):
         from ydx.ui.dialogs.settings_dlg import SettingsDialog
 
         dlg = SettingsDialog(self._settings, QApplication.instance(), self,
-                             daemon=self.daemon)
+                             daemon=self.daemon, accounts=self._accounts)
         dlg.set_secure(self._token_secure)
         dlg.exec()
+        dlg.deleteLater()
+        if self._accounts.active is None:
+            QTimer.singleShot(0, self.show_login)
 
     def show_sync_dialog(self) -> None:
         from ydx.ui.panels.sync_panel import SyncDialog

@@ -237,5 +237,9 @@
   "photos.sort.size": "По размеру",
   "photos.sort.name": "По имени",
   "login.welcome_hint": "Нажмите кнопку — откроется страница Яндекса, подтвердите вход. Никаких токенов вводить не нужно.",
-  "login.own_key": "Свой OAuth-ключ приложения…"
+  "login.own_key": "Свой OAuth-ключ приложения…",
+  "settings.logout": "Выйти из аккаунта",
+  "settings.no_account": "Вход не выполнен",
+  "settings.current_account": "Текущий аккаунт",
+  "settings.logout_confirm": "Выйти из аккаунта «{name}»? Токен будет удалён из хранилища."
 }

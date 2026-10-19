@@ -34,11 +34,13 @@ AUTOSTART_DESKTOP = (
 
 
 class SettingsDialog(QDialog):
-    def __init__(self, settings: AppSettings, app, parent=None, daemon=None) -> None:
+    def __init__(self, settings: AppSettings, app, parent=None, daemon=None,
+                 accounts=None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._app = app
         self._daemon = daemon
+        self._accounts = accounts
 
         self.setModal(True)
         self.setMinimumSize(480, 520)
@@ -110,15 +112,26 @@ class SettingsDialog(QDialog):
             col.addWidget(sync_box)
             self._update_sync_folder_label()
 
-        # хранилище токенов
+        # хранилище токенов + текущий аккаунт + выход
         storage = QGroupBox(i18n.tr("settings.account"))
         self._account_box = storage
         srow = QHBoxLayout(storage)
+        account_col = QVBoxLayout()
+        account_col.setSpacing(6)
+        self.account_label = QLabel()
+        self.account_label.setObjectName("dialogHint")
+        account_col.addWidget(self.account_label)
         self.storage_label = QLabel()
         self.storage_label.setObjectName("dialogHint")
         self.storage_label.setWordWrap(True)
-        srow.addWidget(self.storage_label, 1)
+        account_col.addWidget(self.storage_label)
+        srow.addLayout(account_col, 1)
+        self.logout_btn = QPushButton(i18n.tr("settings.logout"))
+        self.logout_btn.setProperty("class", "danger")
+        self.logout_btn.clicked.connect(self._logout)
+        srow.addWidget(self.logout_btn)
         col.addWidget(storage)
+        self._update_account_label()
 
         col.addStretch(1)
 
@@ -150,6 +163,36 @@ class SettingsDialog(QDialog):
         self._settings.set("language", value)
         i18n.set_language(value)
         apply_theme(self._app, self._settings.theme)   # QSS после смены языка перечитать
+
+    # --- аккаунт ----------------------------------------------------------------------
+
+    def _update_account_label(self) -> None:
+        if self._accounts is None:
+            self.account_label.setText("")
+            self.logout_btn.setVisible(False)
+            return
+        account = self._accounts.active
+        if account is None:
+            self.account_label.setText(i18n.tr("settings.no_account"))
+            self.logout_btn.setVisible(False)
+        else:
+            self.account_label.setText(
+                i18n.tr("settings.current_account") + ": " + account.title
+                + (f"  ({account.login})" if account.login and account.login != account.title else "")
+            )
+            self.logout_btn.setVisible(True)
+
+    def _logout(self) -> None:
+        from ydx.ui.errors_ui import confirm
+
+        account = self._accounts.active if self._accounts else None
+        if account is None:
+            return
+        if not confirm(self, i18n.tr("settings.logout_confirm", name=account.title)):
+            return
+        self._accounts.logout(account.login)
+        self._update_account_label()
+        self.accept()   # после закрытия главное окно само предложит вход
 
     # --- синхронизация ------------------------------------------------------------
 
@@ -222,6 +265,8 @@ class SettingsDialog(QDialog):
         self.set_secure(getattr(self, "_secure", True))
         self._general_box.setTitle(i18n.tr("settings.general"))
         self._account_box.setTitle(i18n.tr("settings.account"))
+        self.logout_btn.setText(i18n.tr("settings.logout"))
+        self._update_account_label()
         self._update_downloads_label()
         if hasattr(self, "_sync_box"):
             self._sync_box.setTitle(i18n.tr("sync.title"))
