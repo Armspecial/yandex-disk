@@ -122,13 +122,12 @@ class Sidebar(QFrame):
         self.sync_btn.clicked.connect(self.sync_requested.emit)
         root.addWidget(self.sync_btn)
 
-        # --- ошибки (бейдж с количеством) ---
+        # --- ошибки (отдельное окно, бейдж с количеством) ---
         self.errors_btn = QPushButton()
         self.errors_btn.setObjectName("navBtn")
         self.errors_btn.setCursor(Qt.CursorShape.PointingHandCursor)
         self.errors_btn.setIcon(icon("more"))
         self.errors_btn.clicked.connect(self.errors_requested.emit)
-        self.errors_btn.hide()
         root.addWidget(self.errors_btn)
 
         # --- настройки ---
@@ -188,9 +187,9 @@ class Sidebar(QFrame):
             btn.setChecked(True)
 
     def set_error_count(self, count: int) -> None:
-        """Показать/скрыть кнопку ошибок и бейдж с числом."""
+        """Кнопка ошибок видна всегда; бейдж с числом — только когда есть ошибки."""
         self._error_count = count
-        self.errors_btn.setVisible(count > 0)
+        self.errors_btn.setVisible(True)
         self.errors_btn.setText(
             i18n.tr("nav.errors") + (f"  ·  {count}" if count else "")
         )
@@ -200,8 +199,9 @@ class Sidebar(QFrame):
             self._buttons[key].setText(i18n.tr(text_key))
         self.settings_btn.setText(i18n.tr("nav.settings"))
         self.sync_btn.setText(i18n.tr("sync.title"))
-        if self.errors_btn.isVisible():
-            self.errors_btn.setText(i18n.tr("nav.errors") + f"  ·  {self._error_count}")
+        self.errors_btn.setText(
+            i18n.tr("nav.errors") + (f"  ·  {self._error_count}" if self._error_count else "")
+        )
         if not self.account_name.text():
             self.account_name.setText(i18n.tr("account.add"))
 

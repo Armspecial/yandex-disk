@@ -136,6 +136,7 @@ class FilesDelegate(QStyledItemDelegate):
     def _sync_badge(self, p: QPainter, icon_rect: QRect, r: Resource) -> None:
         """Значок состояния файла относительно компьютера.
 
+        error   — красный диск с ✖ (последняя операция с файлом не удалась);
         offline — синий диск со стрелкой «скачан на компьютер»;
         synced  — зелёный диск с галочкой (синхронизирован демоном);
         cloud   — тёмно-серый диск с облаком (только онлайн).
@@ -150,7 +151,14 @@ class FilesDelegate(QStyledItemDelegate):
         white = QPen(QColor("#FFFFFF"), 1.7)
         white.setCapStyle(Qt.PenCapStyle.RoundCap)
         white.setJoinStyle(Qt.PenJoinStyle.RoundJoin)
-        if state == "offline":
+        if state == "error":            # ошибка по этому файлу
+            p.setBrush(QColor("#FC3F1D"))
+            p.drawEllipse(x, y, d, d)
+            p.setPen(white)
+            ix, iy = int(cx), int(cy)
+            p.drawLine(ix - 4, iy - 4, ix + 4, iy + 4)
+            p.drawLine(ix + 4, iy - 4, ix - 4, iy + 4)
+        elif state == "offline":
             p.setBrush(QColor("#2E6BE6"))
             p.drawEllipse(x, y, d, d)
             p.setPen(white)

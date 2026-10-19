@@ -70,7 +70,7 @@ class FilesPage(QWidget):
 
     def __init__(
         self, settings: AppSettings, accounts: AccountManager, thumbs: ThumbService,
-        engine: TransferEngine, downloaded=None, parent: QWidget | None = None,
+        engine: TransferEngine, downloaded=None, failed=None, parent: QWidget | None = None,
     ) -> None:
         super().__init__(parent)
         self._settings = settings
@@ -78,6 +78,7 @@ class FilesPage(QWidget):
         self._thumbs = thumbs
         self._engine = engine
         self._downloaded = downloaded
+        self._failed = failed
         self._history: list[str] = []
         self._current = "disk:/"
         self._filter = ""
@@ -164,6 +165,8 @@ class FilesPage(QWidget):
             self._downloaded.index_changed.connect(
                 lambda: self._sync_refresh_timer.start()
             )
+        if self._failed is not None:
+            self._failed.changed.connect(lambda: self._sync_refresh_timer.start())
 
         i18n.register(self.retranslate)
 
@@ -242,11 +245,14 @@ class FilesPage(QWidget):
 
         def job():
             downloaded = self._downloaded
+            failed = self._failed
             sync_index = self._sync_index
             sync_on = sync_index.is_configured()
             states: dict[str, str] = {}
             for r in resources:
-                if downloaded is not None and downloaded.has(r.path):
+                if failed is not None and failed.has(r.path):
+                    states[r.path] = "error"
+                elif downloaded is not None and downloaded.has(r.path):
                     states[r.path] = "offline"
                 elif sync_on and sync_index.exists_locally(r.path):
                     states[r.path] = "synced"
@@ -319,16 +325,32 @@ class FilesPage(QWidget):
         if not name:
             return
 
+        new_path = f"{self._current.rstrip('/')}/{name}"
+
         def job():
             res = self._require_api()
-            res.mkdir(f"{self._current.rstrip('/')}/{name}")
-            return name
+            res.mkdir(new_path)
+            return new_path
 
         run_in_thread(
             job,
-            lambda _n: self._after_op(),
-            lambda exc: show_api_error(self, exc),
+            lambda p: (self._clear_failed([p]), self._after_op()),
+            lambda exc: self._op_error([new_path], exc),
         )
+
+    # --- ошибки по конкретным файлам (красный ✖ в списке) ------------------------
+
+    def _op_error(self, paths: list[str], exc: Exception) -> None:
+        """Показать ошибку и пометить затронутые файлы значком ✖."""
+        show_api_error(self, exc)
+        if self._failed is not None:
+            for p in paths:
+                self._failed.mark(p, str(exc))
+
+    def _clear_failed(self, paths: list[str]) -> None:
+        if self._failed is not None:
+            for p in paths:
+                self._failed.discard(p)
 
     # --- «убрать с компьютера» (локальную копию удалить, в облаке оставить) ----
 
@@ -348,39 +370,28 @@ class FilesPage(QWidget):
             return
         skipped = len(resources) - len(offline)
 
-        total = 0
-        from pathlib import Path
-
-        for r in offline:
-            local = self._downloaded.local_for(r.path)
-            if local:
-                try:
-                    total += Path(local).stat().st_size
-                except OSError:
-                    pass
-        if not confirm(
-            self, i18n.tr("files.free_up_confirm", n=len(offline), size=human_size(total))
-        ):
+        if not confirm(self, i18n.tr("files.free_up_confirm", n=len(offline))):
             return
 
-        freed = 0
+        from pathlib import Path
+
         for r in offline:
             local = self._downloaded.local_for(r.path)
             if not local:
                 continue
             try:
-                freed += Path(local).stat().st_size
                 Path(local).unlink()
             except OSError:
                 pass
             self._downloaded.remove(r.path)
 
-        from PySide6.QtWidgets import QMessageBox
-
-        text = i18n.tr("files.free_up_done", size=human_size(freed))
         if skipped:
-            text += "\n" + i18n.tr("files.free_up_skipped_synced", n=skipped)
-        QMessageBox.information(self, i18n.tr("app.title"), text)
+            from PySide6.QtWidgets import QMessageBox
+
+            QMessageBox.information(
+                self, i18n.tr("app.title"),
+                i18n.tr("files.free_up_skipped_synced", n=skipped),
+            )
         self._sync_refresh_timer.start()
 
     def _update_free_up_button(self) -> None:
@@ -487,7 +498,11 @@ class FilesPage(QWidget):
                 wait_operation(self._accounts.api, op)
             return dst
 
-        run_in_thread(job, lambda _p: self._after_op(), lambda exc: show_api_error(self, exc))
+        run_in_thread(
+            job,
+            lambda _p: (self._clear_failed([resource.path]), self._after_op()),
+            lambda exc: self._op_error([resource.path], exc),
+        )
 
     def delete(self, resources: list[Resource]) -> None:
         if not resources:
@@ -507,7 +522,12 @@ class FilesPage(QWidget):
                     wait_operation(self._accounts.api, op)
             return len(resources)
 
-        run_in_thread(job, lambda _n: self._after_op(), lambda exc: show_api_error(self, exc))
+        paths = [r.path for r in resources]
+        run_in_thread(
+            job,
+            lambda _n: (self._clear_failed(paths), self._after_op()),
+            lambda exc: self._op_error(paths, exc),
+        )
 
     def publish(self, resource: Resource) -> None:
         def job():
@@ -515,18 +535,19 @@ class FilesPage(QWidget):
 
         def done(updated: Resource) -> None:
             QGuiApplication.clipboard().setText(updated.public_url or "")
+            self._clear_failed([resource.path])
             self._after_op()
 
         run_in_thread(
             job, done,
-            lambda exc: show_api_error(self, exc, i18n.tr("files.link_failed_publish")),
+            lambda exc: self._op_error([resource.path], exc),
         )
 
     def unpublish(self, resource: Resource) -> None:
         run_in_thread(
             lambda: self._require_api().unpublish(resource.path),
-            lambda _r: self._after_op(),
-            lambda exc: show_api_error(self, exc, i18n.tr("files.link_failed_publish")),
+            lambda _r: (self._clear_failed([resource.path]), self._after_op()),
+            lambda exc: self._op_error([resource.path], exc),
         )
 
     def _pick_folder(self, title: str) -> str | None:
@@ -565,7 +586,11 @@ class FilesPage(QWidget):
                     wait_operation(self._accounts.api, op)
             return len(paths)
 
-        run_in_thread(job, lambda _n: self._after_op(), lambda exc: show_api_error(self, exc))
+        run_in_thread(
+            job,
+            lambda _n: (self._clear_failed(paths), self._after_op()),
+            lambda exc: self._op_error(paths, exc),
+        )
 
     def properties(self, resource: Resource) -> None:
         PropertiesDialog(resource, self._thumbs, self).exec()

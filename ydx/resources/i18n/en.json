@@ -230,8 +230,7 @@
   "files.downloaded_to": "“{name}” downloaded to {folder}",
   "ctx.free_up": "Free up space (keep in cloud)",
   "toolbar.free_up": "Free up space",
-  "files.free_up_confirm": "Delete local copies of selected files ({n}, {size})? They will remain in the cloud, online only.",
-  "files.free_up_done": "Freed {size}",
+  "files.free_up_confirm": "Delete local copies of selected files ({n})? They remain in the cloud.",
   "files.free_up_none": "No downloaded files in selection",
   "files.free_up_skipped_synced": "Skipped {n}: files in the daemon sync folder (managed by sync)"
 }

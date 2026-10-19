@@ -125,10 +125,13 @@ class MainWindow(QMainWindow):
 
         self.error_center = ErrorCenter(self)
         attach_center(self.error_center)
-        self.error_center.changed.connect(
-            lambda: self.sidebar.set_error_count(self.error_center.count)
-        )
+        self.error_center.changed.connect(self._on_errors_changed)
         self.sidebar.errors_requested.connect(self._show_errors)
+        self.sidebar.set_error_count(0)
+
+        from ydx.services.failed_index import FailedIndex
+
+        self.failed_index = FailedIndex(self)
 
         self.downloaded_index = DownloadedIndex(self)
         self.engine = TransferEngine(accounts)
@@ -139,15 +142,26 @@ class MainWindow(QMainWindow):
         # завершённые скачивания → значок «доступно офлайн»
         self.engine.task_done.connect(self._on_task_done)
         self.engine.task_error.connect(
-            lambda t: self.error_center.report(
-                "transfers",
-                f"{t.remote_path.rsplit('/', 1)[-1]}: {t.state}"
-                + (f" ({t.error})" if t.error else ""),
+            lambda t: (
+                self.error_center.report(
+                    "transfers",
+                    f"{t.remote_path.rsplit('/', 1)[-1]}: {t.state}"
+                    + (f" ({t.error})" if t.error else ""),
+                ),
+                self.failed_index.mark(t.remote_path, t.error or t.state),
             )
+        )
+        # повтор удался — ✖ с файла снимается
+        self.engine.task_done.connect(
+            lambda t: self.failed_index.discard(t.remote_path)
+        )
+        self.failed_index.changed.connect(
+            lambda: self.files_page._sync_refresh_timer.start()
         )
 
         self.files_page = FilesPage(
-            settings, accounts, self.thumbs, self.engine, self.downloaded_index
+            settings, accounts, self.thumbs, self.engine,
+            self.downloaded_index, self.failed_index,
         )
         self.replace_page("files", self.files_page)
         self.transfers_view = TransfersView(self.engine)
@@ -215,6 +229,11 @@ class MainWindow(QMainWindow):
         """Локально изменили скачанный файл — обновляем копию в облаке."""
         remote_dir = remote_path.rsplit("/", 1)[0] or "disk:/"
         self.engine.enqueue_upload([local_path], remote_dir, overwrite=True)
+
+    def _on_errors_changed(self) -> None:
+        self.sidebar.set_error_count(self.error_center.count)
+        if self.error_center.count == 0:
+            self.failed_index.clear()   # список ошибок очистили — ✖ тоже уходит
 
     def _show_errors(self) -> None:
         from ydx.ui.dialogs.errors_dlg import ErrorsDialog
