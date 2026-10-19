@@ -83,10 +83,20 @@ class RecentPage(QWidget):
             self.stack.setCurrentWidget(self.view)
 
     def _open(self, resource: Resource) -> None:
-        if not resource.is_dir:
-            resources = self._accounts.resources
-            if resources is not None:
-                openers.open_resource(self, resources, resource)
+        if resource.is_dir:
+            return
+        resources = self._accounts.resources
+        if resources is None:
+            return
+        from ydx.ui.views.viewer import PhotoViewer, VideoViewer, viewer_kind
+
+        kind = viewer_kind(resource)
+        if kind == "photo":
+            PhotoViewer([resource], 0, self._thumbs, self).exec()
+        elif kind == "video":
+            VideoViewer(resource, resources, self).exec()
+        else:
+            openers.open_resource(self, resources, resource)
 
     def _show_in_folder(self, resource: Resource) -> None:
         parent = resource.path.rsplit("/", 1)[0] or "disk:/"

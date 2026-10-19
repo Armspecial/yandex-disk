@@ -17,13 +17,14 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ydx.constants import MAX_FREE_UPLOAD
+from ydx.constants import MAX_FREE_UPLOAD, OPEN_SIZE_LIMIT
 from ydx.core.api_resources import ResourcesApi
 from ydx.core.errors import ApiError
 from ydx.core.models import Resource
 from ydx.core.operations import wait_operation
 from ydx.services import i18n, openers
 from ydx.services.accounts import AccountManager
+from ydx.services.fmt import human_size
 from ydx.services.settings import AppSettings
 from ydx.services.thumbs import ThumbService
 from ydx.services.transfers import TransferEngine
@@ -192,8 +193,32 @@ class FilesPage(QWidget):
             self.load_path(resource.path)
             return
         resources = self._accounts.resources
-        if resources is not None:
-            openers.open_resource(self, resources, resource)
+        if resources is None:
+            return
+        from ydx.ui.views.viewer import PhotoViewer, VideoViewer, viewer_kind
+
+        kind = viewer_kind(resource)
+        if kind == "photo":
+            images = [
+                r for r in self.model.items
+                if not r.is_dir and r.media_type == "image"
+            ]
+            index = next(
+                (i for i, r in enumerate(images) if r.path == resource.path), 0
+            )
+            if images:
+                PhotoViewer(images, index, self._thumbs, self).exec()
+            return
+        if kind == "video":
+            if resource.size > OPEN_SIZE_LIMIT and not confirm(
+                self,
+                i18n.tr("files.open_too_big",
+                        size=human_size(resource.size), limit=human_size(OPEN_SIZE_LIMIT)),
+            ):
+                return
+            VideoViewer(resource, resources, self).exec()
+            return
+        openers.open_resource(self, resources, resource)
 
     def new_folder(self) -> None:
         name = ask_name(self, i18n.tr("files.new_folder"), i18n.tr("files.new_folder_label"))

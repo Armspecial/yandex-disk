@@ -143,6 +143,10 @@ class FilesModel(QAbstractListModel):
     def resource_at(self, row: int) -> Resource | None:
         return self._items[row] if 0 <= row < len(self._items) else None
 
+    @property
+    def items(self) -> list[Resource]:
+        return list(self._items)
+
     def row_of(self, path: str) -> int:
         for i, r in enumerate(self._items):
             if r.path == path:

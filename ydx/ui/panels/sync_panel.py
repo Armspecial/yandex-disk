@@ -159,10 +159,18 @@ class SyncDialog(QDialog):
     # --- управление демоном -----------------------------------------------------------
 
     def _start(self) -> None:
-        if not self._daemon.config().get("dir") and not self._daemon.ensure_config():
-            self.detail_label.setText(i18n.tr("login.welcome") + " — " + i18n.tr("sync.setup_hint"))
+        # при первом запуске папку выбирает пользователь, а не дефолт ~/Yandex.Disk
+        if not self._daemon.config().get("dir"):
+            folder = QFileDialog.getExistingDirectory(
+                self, i18n.tr("sync.choose_folder"), str(Path.home())
+            )
+            if not folder:
+                return
+            self._daemon.apply_config({"dir": folder})
+            self.folder_label.setText(i18n.tr("sync.folder") + ": " + folder)
+        if not self._daemon.ensure_config():
+            self.detail_label.setText(i18n.tr("sync.setup_hint"))
             return
-        self._daemon.ensure_config()
         self._daemon.start()
 
     def _stop(self) -> None:
@@ -243,7 +251,7 @@ class SyncDialog(QDialog):
         self.start_btn.setText(i18n.tr("sync.start"))
         self.stop_btn.setText(i18n.tr("sync.stop"))
         self.pause_btn.setText(i18n.tr("sync.pause"))
-        self.folder_btn.setText(i18n.tr("sync.folder"))
+        self.folder_btn.setText(i18n.tr("sync.change_folder"))
         self.readonly_check.setText(i18n.tr("sync.readonly"))
         self.selective_title.setText(
             i18n.tr("sync.selective") + " — " + i18n.tr("sync.selective_hint")

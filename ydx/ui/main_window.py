@@ -13,6 +13,7 @@ from PySide6.QtWidgets import (
     QMainWindow,
     QMenu,
     QStackedWidget,
+    QSystemTrayIcon,
     QWidget,
 )
 
@@ -107,6 +108,7 @@ class MainWindow(QMainWindow):
 
         self.sidebar.set_secure(True)   # заменяется реальным флагом в app.py
         self._token_secure = True
+        self._tray_toast_shown = False
         self.sidebar.set_section("files")
         i18n.register(self.retranslate)
         self.retranslate()
@@ -239,6 +241,22 @@ class MainWindow(QMainWindow):
         return None
 
     def closeEvent(self, event) -> None:  # noqa: N802 — Qt API
+        """«✕» сворачивает в трей (полный выход — через меню иконки).
+
+        Без области уведомлений закрываемся по-настоящему.
+        """
+        tray_ok = hasattr(self, "tray") and getattr(self.tray, "available", False)
+        if tray_ok and not getattr(self, "_force_quit", False):
+            event.ignore()
+            self.hide()
+            if not self._tray_toast_shown:
+                self._tray_toast_shown = True
+                self.tray.tray.showMessage(
+                    i18n.tr("app.title"),
+                    i18n.tr("tray.hidden_toast"),
+                    QSystemTrayIcon.MessageIcon.Information,
+                )
+            return
         if hasattr(self, "daemon"):
             self.daemon.shutdown()
         super().closeEvent(event)

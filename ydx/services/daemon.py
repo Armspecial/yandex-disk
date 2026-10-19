@@ -168,10 +168,20 @@ class DaemonController(QObject):
         proc.start(DAEMON_BINARY, ["status", "-c", str(DAEMON_CONFIG_FILE)])
 
     def shutdown(self) -> None:
-        """Аккуратно завершить фоновые QProcess при выходе."""
+        """Аккуратно завершить фоновые QProcess при выходе.
+
+        Сначала отключаем обработчики — иначе kill() дёрнет finished уже
+        удалённого C++-объекта (shiboken RuntimeError на выходе).
+        """
         self._poll.stop()
         for proc in list(self._procs):
+            try:
+                proc.finished.disconnect()
+                proc.errorOccurred.disconnect()
+            except (RuntimeError, TypeError):
+                pass
             proc.kill()
+            proc.deleteLater()
         self._procs.clear()
 
     def watch(self) -> None:

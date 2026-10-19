@@ -196,5 +196,12 @@
   "settings.about": "About",
   "settings.about_text": "Unofficial Yandex Disk client for Linux.\nVersion {version}. Not affiliated with Yandex.\nFeatures: files, links, trash, photos, transfers, sync.",
   "settings.storage_secure": "Tokens are stored in the system secret storage",
-  "settings.storage_insecure": "Tokens in a 0600 file (secret storage unavailable)"
+  "settings.storage_insecure": "Tokens in a 0600 file (secret storage unavailable)",
+  "sync.change_folder": "Change…",
+  "sync.choose_folder": "Choose the sync folder",
+  "tray.hidden_toast": "The app is hidden to tray. Quit via the tray icon menu.",
+  "viewer.loading_video": "Downloading video for playback…",
+  "viewer.video_error": "Could not play the video",
+  "viewer.play": "Play",
+  "viewer.pause": "Pause"
 }
