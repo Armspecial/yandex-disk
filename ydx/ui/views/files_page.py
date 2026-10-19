@@ -413,9 +413,9 @@ class FilesPage(QWidget):
     # --- передачи ---------------------------------------------------------------
 
     def _upload_files_dialog(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
+        from ydx.ui.widgets import pick_open_files
 
-        files, _ = QFileDialog.getOpenFileNames(
+        files = pick_open_files(
             self, i18n.tr("transfers.upload_files"), str(self._last_upload_dir())
         )
         if files:
@@ -423,9 +423,9 @@ class FilesPage(QWidget):
             self._enqueue_uploads(files)
 
     def _upload_folder_dialog(self) -> None:
-        from PySide6.QtWidgets import QFileDialog
+        from ydx.ui.widgets import pick_directory
 
-        folder = QFileDialog.getExistingDirectory(
+        folder = pick_directory(
             self, i18n.tr("transfers.upload_folder"), str(self._last_upload_dir())
         )
         if folder:

@@ -161,9 +161,9 @@ class SyncDialog(QDialog):
     def _start(self) -> None:
         # при первом запуске папку выбирает пользователь, а не дефолт ~/Yandex.Disk
         if not self._daemon.config().get("dir"):
-            folder = QFileDialog.getExistingDirectory(
-                self, i18n.tr("sync.choose_folder"), str(Path.home())
-            )
+            from ydx.ui.widgets import pick_directory
+
+            folder = pick_directory(self, i18n.tr("sync.choose_folder"), str(Path.home()))
             if not folder:
                 return
             self._daemon.apply_config({"dir": folder})
@@ -210,8 +210,10 @@ class SyncDialog(QDialog):
         self.apply_btn.setEnabled(self._dirty)
 
     def _change_folder(self) -> None:
+        from ydx.ui.widgets import pick_directory
+
         current = self._daemon.config().get("dir", str(Path.home()))
-        folder = QFileDialog.getExistingDirectory(self, i18n.tr("sync.folder"), current)
+        folder = pick_directory(self, i18n.tr("sync.folder"), current)
         if folder:
             self.folder_label.setText(i18n.tr("sync.folder") + ": " + folder)
             self._new_dir = folder

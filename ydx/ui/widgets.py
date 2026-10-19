@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from PySide6.QtCore import QPoint, QRect, Qt
+from PySide6.QtCore import QRect, Qt
 from PySide6.QtGui import QColor, QFont, QFontMetrics, QIcon, QPainter, QPixmap
 from PySide6.QtWidgets import QLabel, QWidget
 
@@ -19,6 +19,31 @@ def icon(name: str) -> QIcon:
         path = ICONS_DIR / f"{name}.svg"
         _icon_cache[name] = QIcon(str(path)) if path.exists() else QIcon()
     return _icon_cache[name]
+
+
+def pick_directory(parent, title: str, start_dir: str = "") -> str:
+    """Выбор папки. Всегда НЕнативный диалог: нативный (GTK/portal) зависает
+    на некоторых сессиях (см. ошибку регистрации в xdg-desktop-portal)."""
+    from PySide6.QtWidgets import QFileDialog
+
+    dlg = QFileDialog(parent, title, start_dir or str(Path.home()))
+    dlg.setFileMode(QFileDialog.FileMode.Directory)
+    dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+    if dlg.exec() == QFileDialog.DialogCode.Accepted and dlg.selectedFiles():
+        return dlg.selectedFiles()[0]
+    return ""
+
+
+def pick_open_files(parent, title: str, start_dir: str = "") -> list[str]:
+    """Выбор файлов для загрузки (тоже без нативного диалога)."""
+    from PySide6.QtWidgets import QFileDialog
+
+    dlg = QFileDialog(parent, title, start_dir or str(Path.home()))
+    dlg.setFileMode(QFileDialog.FileMode.ExistingFiles)
+    dlg.setOption(QFileDialog.Option.DontUseNativeDialog, True)
+    if dlg.exec() == QFileDialog.DialogCode.Accepted:
+        return dlg.selectedFiles()
+    return []
 
 
 def make_avatar(text: str, color: str, size: int = 36, dpr: float = 2.0) -> QPixmap:

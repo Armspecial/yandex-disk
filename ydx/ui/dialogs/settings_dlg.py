@@ -8,7 +8,6 @@ from PySide6.QtCore import Qt
 from PySide6.QtWidgets import (
     QComboBox,
     QDialog,
-    QFileDialog,
     QFormLayout,
     QGroupBox,
     QHBoxLayout,
@@ -167,11 +166,10 @@ class SettingsDialog(QDialog):
         from ydx.core.daemon_config import read_config
         from ydx.constants import DAEMON_CONFIG_FILE
         from ydx.ui.errors_ui import confirm
+        from ydx.ui.widgets import pick_directory
 
         current = read_config(DAEMON_CONFIG_FILE).get("dir", "")
-        folder = QFileDialog.getExistingDirectory(
-            self, i18n.tr("sync.choose_folder"), current or str(Path.home())
-        )
+        folder = pick_directory(self, i18n.tr("sync.choose_folder"), current or str(Path.home()))
         if not folder:
             return
         self._daemon.apply_config({"dir": folder})
@@ -195,10 +193,10 @@ class SettingsDialog(QDialog):
     def _change_downloads_dir(self) -> None:
         from pathlib import Path
 
+        from ydx.ui.widgets import pick_directory
+
         current = self._settings.get("downloads_dir") or str(Path.home() / "Yandex Disk")
-        folder = QFileDialog.getExistingDirectory(
-            self, i18n.tr("settings.downloads_folder"), current
-        )
+        folder = pick_directory(self, i18n.tr("settings.downloads_folder"), current)
         if folder:
             self._settings.set("downloads_dir", folder)
             self._update_downloads_label()
