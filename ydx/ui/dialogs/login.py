@@ -141,12 +141,9 @@ class LoginDialog(QDialog):
         col.addWidget(self.cfg_oauth_link)
         col.addStretch(1)
         row = QHBoxLayout()
-        self.cfg_paste_btn = QPushButton(i18n.tr("login.method_paste"))
-        self.cfg_paste_btn.clicked.connect(lambda: self._go(PAGE_PASTE))
         self.cfg_continue_btn = QPushButton(i18n.tr("login.continue"))
         self.cfg_continue_btn.setProperty("class", "primary")
         self.cfg_continue_btn.clicked.connect(self._save_config_and_continue)
-        row.addWidget(self.cfg_paste_btn)
         row.addStretch(1)
         row.addWidget(self.cfg_continue_btn)
         col.addLayout(row)
@@ -157,20 +154,14 @@ class LoginDialog(QDialog):
         col = QVBoxLayout(page)
         col.setContentsMargins(0, 8, 0, 0)
         col.setSpacing(10)
+        # только вход через Яндекс ID — никаких токенов и ключей
         self.method_rows = [
             _MethodRow("", "", lambda t=PAGE_DEVICE: self._go(t)),
             _MethodRow("", "", lambda t=PAGE_BROWSER: self._go(t)),
-            _MethodRow("", "", lambda t=PAGE_PASTE: self._go(t)),
         ]
         for row in self.method_rows:
             col.addWidget(row)
         col.addStretch(1)
-        # для продвинутых: подменить встроенный ключ своим приложением
-        self.own_key_btn = QPushButton()
-        self.own_key_btn.setProperty("class", "flat")
-        self.own_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.own_key_btn.clicked.connect(lambda: self._go(PAGE_CONFIG))
-        col.addWidget(self.own_key_btn, 0, Qt.AlignmentFlag.AlignLeft)
         return page
 
     def _page_device(self) -> QWidget:
@@ -374,9 +365,7 @@ class LoginDialog(QDialog):
         self.setWindowTitle(i18n.tr("login.welcome"))
         self.title.setText(i18n.tr("login.welcome"))
         self.hint.setText(i18n.tr("login.welcome_hint"))
-        self.own_key_btn.setText(i18n.tr("login.own_key"))
         self.cfg_oauth_link.setText(i18n.tr("login.open_oauth"))
-        self.cfg_paste_btn.setText(i18n.tr("login.method_paste"))
         self.cfg_continue_btn.setText(i18n.tr("login.continue"))
         for row, (title_key, hint_key) in zip(
             self.method_rows,
