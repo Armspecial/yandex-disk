@@ -19,15 +19,15 @@ PYSIDE="$(pin PySide6)"
 BUILD_VENV="packaging/.build-venv"
 
 # --- 1. Сборочный venv: Essentials+Addons (Qt Widgets и Multimedia), без WebEngine --
-if [ ! -x "$BUILD_VENV/bin/python3" ]; then
+if [ ! -e "$BUILD_VENV/bin/pip-done" ]; then
     echo "Создаю сборочный venv ($BUILD_VENV)…"
-    # как в install.sh: без python3-venv бутстрапим pip через get-pip.py
+    # NB: на Ubuntu «python3 -m venv» без python3-venv молча выходит с кодом 0,
+    # не поставив pip — поэтому всегда --without-pip + get-pip.py (как install.sh)
     rm -rf "$BUILD_VENV"
-    if ! python3 -m venv "$BUILD_VENV" 2>/dev/null; then
-        python3 -m venv --without-pip "$BUILD_VENV"
-        curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
-        "$BUILD_VENV/bin/python3" /tmp/get-pip.py --quiet
-    fi
+    python3 -m venv --without-pip "$BUILD_VENV"
+    curl -fsSL https://bootstrap.pypa.io/get-pip.py -o /tmp/get-pip.py
+    "$BUILD_VENV/bin/python3" /tmp/get-pip.py --quiet
+    touch "$BUILD_VENV/bin/pip-done"
 fi
 "$BUILD_VENV/bin/python3" -m pip install --quiet \
     "PySide6-Essentials==$PYSIDE" "PySide6-Addons==$PYSIDE" \
