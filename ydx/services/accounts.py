@@ -42,20 +42,39 @@ class _TokenProvider:
     def refresh(self) -> str:
         with self._lock:
             current = self._store.load(self._key) or {}
-            refresh_token = current.get("refresh_token")
-            if not refresh_token:
+            # Текущий refresh + короткая история: если процесс умер между
+            # выдачей Яндексом нового токена и сохранением, прошлый ещё
+            # валиден — пробуем по очереди, прежде чем признавать логаут.
+            candidates = [current.get("refresh_token"), *current.get("refresh_history", [])]
+            candidates = [c for c in dict.fromkeys(candidates) if c]
+            if not candidates:
                 return ""
             oauth = OAuthClient(self._settings.client_id, self._settings.client_secret)
-            bundle = oauth.refresh(refresh_token)
-            new_tokens = {
-                "access_token": bundle.access_token,
-                "refresh_token": bundle.refresh_token or refresh_token,
-                "expires_at": bundle.expires_at,
-            }
-            # сначала сохраняем новый, только потом forget старый (ротация!)
-            self._store.save(self._key, new_tokens)
-            self._tokens = new_tokens
-            return new_tokens["access_token"]
+            last_exc: Exception | None = None
+            failed: list[str] = []
+            for cand in candidates:
+                try:
+                    bundle = oauth.refresh(cand)
+                except AuthError as exc:
+                    last_exc = exc
+                    failed.append(cand)
+                    continue
+                new_refresh = bundle.refresh_token or cand
+                new_tokens = {
+                    "access_token": bundle.access_token,
+                    "refresh_token": new_refresh,
+                    "expires_at": bundle.expires_at,
+                    # ротация: непроверенные прошлые refresh держим как запас (макс. 2)
+                    "refresh_history": [
+                        c for c in candidates if c != new_refresh and c not in failed
+                    ][:2],
+                }
+                self._store.save(self._key, new_tokens)
+                self._tokens = new_tokens
+                return new_tokens["access_token"]
+            if last_exc is not None:
+                raise last_exc
+            return ""
 
 
 class AccountManager(QObject):
