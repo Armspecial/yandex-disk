@@ -43,6 +43,7 @@
   "login.cancel": "Отмена",
   "login.verifying": "Проверяю доступ к Диску…",
   "login.err_auth": "Не удалось войти: {err}",
+  "login.err_scopes": "Не удалось войти: {err}. Похоже, у приложения на oauth.yandex.ru не отмечены права «Яндекс Диск REST API» (cloud_api:disk.read/write/info/app_folder) — откройте приложение → «Редактировать» → отметьте все четыре → сохраните и войдите заново.",
   "login.err_network": "Сетевая проблема: {err}",
   "err.auth": "Сессия истекла — войдите заново",
   "err.network": "Нет связи с Яндекс.Диском",
@@ -244,5 +245,6 @@
   "settings.logout_confirm": "Выйти из аккаунта «{name}»? Токен будет удалён из хранилища.",
   "signedout.title": "Вы вышли из аккаунта",
   "signedout.hint": "Чтобы работать с Диском, войдите через Яндекс ID — это один клик.",
-  "signedout.login": "Войти через Яндекс ID"
+  "signedout.login": "Войти через Яндекс ID",
+  "login.change_key": "Изменить OAuth-ключ (ClientID / ClientSecret)"
 }

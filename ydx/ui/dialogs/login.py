@@ -25,7 +25,7 @@ from PySide6.QtWidgets import (
 
 from ydx.core.api_client import ApiClient, StaticTokenProvider
 from ydx.core.api_resources import ResourcesApi
-from ydx.core.errors import NetworkError
+from ydx.core.errors import ApiError, NetworkError
 from ydx.core.models import TokenBundle
 from ydx.core.oauth import OAuthClient, RedirectListener, new_state
 from ydx.services import i18n
@@ -165,6 +165,12 @@ class LoginDialog(QDialog):
         for row in self.method_rows:
             col.addWidget(row)
         col.addStretch(1)
+        # смена ClientID/Secret доступна всегда, не только при первом входе
+        self.change_key_btn = QPushButton()
+        self.change_key_btn.setProperty("class", "flat")
+        self.change_key_btn.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.change_key_btn.clicked.connect(lambda: self._go(PAGE_CONFIG))
+        col.addWidget(self.change_key_btn, 0, Qt.AlignmentFlag.AlignLeft)
         return page
 
     def _page_device(self) -> QWidget:
@@ -357,7 +363,13 @@ class LoginDialog(QDialog):
     def _show_error_exc(self, exc: Exception) -> None:
         # полный контекст — в лог: с баннера пользователь пересказывает неточно
         log.warning("вход не удался: %s: %s", type(exc).__name__, exc)
-        key = "login.err_network" if isinstance(exc, NetworkError) else "login.err_auth"
+        if isinstance(exc, NetworkError):
+            key = "login.err_network"
+        elif isinstance(exc, ApiError) and exc.status == 403:
+            # типичный случай: у OAuth-приложения не отмечены права Disk API
+            key = "login.err_scopes"
+        else:
+            key = "login.err_auth"
         self._show_error(i18n.tr(key, err=exc))
 
     def _show_error(self, text: str) -> None:
@@ -371,6 +383,7 @@ class LoginDialog(QDialog):
         self.title.setText(i18n.tr("login.welcome"))
         self.hint.setText(i18n.tr("login.welcome_hint"))
         self.cfg_oauth_link.setText(i18n.tr("login.open_oauth"))
+        self.change_key_btn.setText(i18n.tr("login.change_key"))
         self.cfg_continue_btn.setText(i18n.tr("login.continue"))
         for row, (title_key, hint_key) in zip(
             self.method_rows,

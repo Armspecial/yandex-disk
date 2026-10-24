@@ -43,6 +43,7 @@
   "login.cancel": "Cancel",
   "login.verifying": "Checking Disk access…",
   "login.err_auth": "Sign-in failed: {err}",
+  "login.err_scopes": "Login failed: {err}. The app on oauth.yandex.ru seems to be missing the Yandex Disk REST API scopes (cloud_api:disk.read/write/info/app_folder) — open the app → Edit → tick all four → save and log in again.",
   "login.err_network": "Network problem: {err}",
   "err.auth": "Session expired — sign in again",
   "err.network": "Cannot reach Yandex Disk",
@@ -244,5 +245,6 @@
   "settings.logout_confirm": "Sign out of “{name}”? The token will be removed from storage.",
   "signedout.title": "You are signed out",
   "signedout.hint": "Sign in with Yandex ID to work with your Disk — one click.",
-  "signedout.login": "Sign in with Yandex ID"
+  "signedout.login": "Sign in with Yandex ID",
+  "login.change_key": "Change OAuth key (ClientID / ClientSecret)"
 }
