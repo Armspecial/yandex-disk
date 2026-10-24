@@ -32,6 +32,7 @@ DEFAULTS = {
     "proxy_password": "",
     "downloads_dir": "",          # пусто = системная папка «Загрузки»
     "last_upload_dir": "",
+    "show_unlim": True,           # безлимитная автозагрузка в разделе «Фото»
 }
 
 _BOOL = {"true", "false"}

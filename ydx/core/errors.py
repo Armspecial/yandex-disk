@@ -49,6 +49,18 @@ class CancelledError(YdxError):
     """Передача отменена пользователем."""
 
 
+class UnlimError(YdxError):
+    """Внутреннее web-API безлимитной автозагрузки (photounlim)."""
+
+
+class UnlimAuthError(UnlimError):
+    """Куки браузерной сессии истекли/невалидны, sk получить не удалось."""
+
+
+class UnlimCaptchaError(UnlimError):
+    """Яндекс потребовал капчу — обработка невозможна до её прохождения."""
+
+
 def specialize(status: int, code: str, description: str) -> ApiError:
     """Собрать типизированный ApiError по статусу/коду API."""
     cls: type[ApiError] = ApiError

@@ -57,6 +57,7 @@ class Resource:
     public_key: str | None = None
     origin_path: str | None = None  # исходный путь (только для корзины)
     total: int | None = None        # всего элементов в папке (для листинга)
+    file_url: str | None = None     # прямая ссылка на файл (photounlim)
 
     @property
     def is_dir(self) -> bool:

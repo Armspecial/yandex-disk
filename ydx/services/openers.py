@@ -64,3 +64,39 @@ def open_resource(
         done,
         lambda exc: show_api_error(parent, exc, i18n.tr("files.open_failed")),
     )
+
+
+def unlim_download(unlim, resources: list[Resource], target_dir: Path) -> dict:
+    """Скачать элементы безлимита по прямым ссылкам (кукисессией).
+
+    Ссылки короткоживущие — перед скачиванием берём свежий пакет
+    (один bulk-запрос на всю выборку). Блокирующая — вызывающий обязан
+    запустить в потоке. Возвращает {"done", "skipped", "names"}: без
+    ссылки (видео пока) элемент пропускается, ошибки сети тоже уводят
+    в skipped, не роняя пачку.
+    """
+    done = 0
+    skipped: list[str] = []
+    target_dir.mkdir(parents=True, exist_ok=True)
+    links = unlim.download_links(resources)
+    for resource in resources:
+        url = links.get(resource.path) or resource.file_url
+        if not url:
+            skipped.append(resource.name)
+            continue
+        target = target_dir / _safe_name(resource.name)
+        try:
+            resp = unlim.fetch(url, stream=True)
+            if resp.status_code != 200:
+                skipped.append(resource.name)
+                continue
+            tmp = target.with_suffix(target.suffix + ".part")
+            with open(tmp, "wb") as fh:
+                for chunk in resp.iter_content(chunk_size=256 * 1024):
+                    if chunk:
+                        fh.write(chunk)
+            tmp.replace(target)
+            done += 1
+        except Exception:                                  # noqa: BLE001 — пачка важнее
+            skipped.append(resource.name)
+    return {"done": done, "skipped": len(skipped), "names": skipped}

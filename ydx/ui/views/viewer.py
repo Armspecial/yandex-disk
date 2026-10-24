@@ -150,7 +150,7 @@ class VideoViewer(QDialog):
     """
 
     def __init__(
-        self, resource: Resource, resources_api, parent=None,
+        self, resource: Resource, resources_api, parent=None, unlim=None,
     ) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
@@ -159,6 +159,9 @@ class VideoViewer(QDialog):
         self.setStyleSheet("background-color: #101012;")
         self._resource = resource
         self._api = resources_api
+        self._unlim = unlim
+        self._stream_url: str | None = None      # играем по прямой ссылке (безлимит)
+        self._stream_fallback_done = False
 
         from PySide6.QtWidgets import QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QSlider
 
@@ -214,9 +217,45 @@ class VideoViewer(QDialog):
         self.loading_label.setGeometry(0, 0, 10, 10)
         self.loading_label.setParent(self)
 
-        self._start_download()
+        if resource.path.startswith("photounlim:"):
+            # безлимит: стрим по прямой ссылке, фолбэк — скачать кукисессией
+            from ydx.services import i18n
+
+            if resource.file_url:
+                self._play_url(resource.file_url)
+            else:
+                self._on_error(i18n.tr("unlim.no_link"))
+        else:
+            self._start_download()
 
     # --- загрузка и воспроизведение --------------------------------------------
+
+    def _play_url(self, url: str) -> None:
+        """Воспроизвести по прямой ссылке (безлимитное видео)."""
+        from PySide6.QtCore import QUrl
+
+        self._stream_url = url
+        self.player.setSource(QUrl(url))
+        self.player.play()
+
+    def _start_unlim_download(self) -> None:
+        """Стрим не пошёл — скачать безлимитное видео в кэш и проиграть."""
+        from ydx.constants import OPEN_CACHE_DIR
+        from ydx.services import i18n, openers
+        from ydx.services.workers import run_in_thread
+
+        self._show_loading(True)
+
+        def job() -> dict:
+            return openers.unlim_download(self._unlim, [self._resource], OPEN_CACHE_DIR)
+
+        def done(result: dict) -> None:
+            if result["done"]:
+                self._play_file(openers.cache_path(self._resource))
+            else:
+                self._on_error(i18n.tr("unlim.no_link"))
+
+        run_in_thread(job, done, lambda exc: self._on_error(str(exc)))
 
     def _start_download(self) -> None:
         from ydx.services import openers
@@ -279,14 +318,26 @@ class VideoViewer(QDialog):
     def _on_error(self, message: str) -> None:
         from ydx.services import i18n
 
+        if (self._stream_url is not None and not self._stream_fallback_done
+                and self._unlim is not None):
+            self._stream_fallback_done = True
+            self._start_unlim_download()      # стрим не пошёл — скачаем кукисессией
+            return
         self._show_loading(False)
         self.error_label.setText(i18n.tr("viewer.video_error") + f" ({message[:80]})")
         self.error_label.show()
 
     def _fatal_fallback(self) -> None:
         """Мультимедиа недоступна — открываем системным плеером и закрываемся."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
         from ydx.services import openers
 
+        if self._resource.path.startswith("photounlim:"):
+            if self._resource.file_url:
+                QDesktopServices.openUrl(QUrl(self._resource.file_url))
+            self.close()
+            return
         openers.open_resource(self.parent(), self._api, self._resource)
         self.close()
 

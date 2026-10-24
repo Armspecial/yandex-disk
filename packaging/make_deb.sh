@@ -48,6 +48,10 @@ fi
 
 # --- 3. Дерево пакета ---------------------------------------------------------
 APP="dist/yandex-disk-linux"
+
+# ревизия пакета видна в программе: Настройки → О приложении («0.1.0-8»)
+echo "$REV" > "$APP/_internal/ydx/resources/VERSION"
+
 PKG="dist/pkg"
 rm -rf "$PKG"
 mkdir -p "$PKG/DEBIAN" \

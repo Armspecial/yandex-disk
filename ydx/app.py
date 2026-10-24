@@ -11,7 +11,7 @@ from PySide6.QtCore import QtMsgType, qInstallMessageHandler
 from PySide6.QtGui import QIcon
 from PySide6.QtWidgets import QApplication
 
-from ydx import __version__
+from ydx import full_version
 from ydx.constants import APP_ID, APP_TITLE, CACHE_DIR, CONFIG_DIR
 
 ICON_PATH = Path(__file__).parent / "resources" / "icons" / "app.svg"
@@ -58,7 +58,7 @@ def main(argv: list[str] | None = None) -> int:
     app.setApplicationName(APP_ID)
     app.setApplicationDisplayName(APP_TITLE)
     app.setOrganizationName(APP_ID)
-    app.setApplicationVersion(__version__)
+    app.setApplicationVersion(full_version())
     app.setDesktopFileName(APP_ID)
     if ICON_PATH.exists():
         app.setWindowIcon(QIcon(str(ICON_PATH)))

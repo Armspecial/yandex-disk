@@ -83,6 +83,28 @@ class ResourceListModel(QAbstractListModel):
             self._fetcher = fetcher
             self.fetchMore()
 
+    # --- сбор из нескольких источников (без fetcher) ------------------------------
+
+    def begin_collect(self) -> None:
+        """Сброс + флаг загрузки; порции добавляет add_items из колбэков."""
+        self.beginResetModel()
+        self._items = []
+        self._fetcher = None
+        self._next_offset = None
+        self._loading = True
+        self.endResetModel()
+
+    def add_items(self, items: list[Resource]) -> None:
+        if not items:
+            return
+        row = len(self._items)
+        self.beginInsertRows(QModelIndex(), row, row + len(items) - 1)
+        self._items.extend(items)
+        self.endInsertRows()
+
+    def end_collect(self) -> None:
+        self._loading = False
+
     # --- пагинация -------------------------------------------------------------------
 
     def canFetchMore(self, parent: QModelIndex | None = None) -> bool:  # noqa: N802

@@ -28,16 +28,18 @@ def thumb_key(resource: Resource) -> str:
 
 
 class _FetchJob(QRunnable):
-    def __init__(self, service: "ThumbService", key: str, url: str, px: int) -> None:
+    def __init__(self, service: "ThumbService", key: str, url: str, px: int,
+                 fetcher=None) -> None:
         super().__init__()
         self.service = service
         self.key = key
         self.url = url
         self.px = px
+        self.fetcher = fetcher          # подмена загрузки (photounlim)
 
     def run(self) -> None:
         try:
-            image = self.service._download(self.url)
+            image = self.fetcher(self.url) if self.fetcher else self.service._download(self.url)
         except Exception as exc:  # noqa: BLE001
             log.debug("thumb fetch failed %s: %s", self.key, exc)
             self.service._mark_failed(self.key)
@@ -56,9 +58,11 @@ class ThumbService(QObject):
 
     ready = Signal(str)
 
-    def __init__(self, api_provider) -> None:  # api_provider() -> ApiClient | None
+    def __init__(self, api_provider, unlim_provider=None) -> None:
+        # api_provider() -> ApiClient | None; unlim_provider() -> UnlimService | None
         super().__init__()
         self._api_provider = api_provider
+        self._unlim_provider = unlim_provider
         self._pool = QThreadPool(self)
         self._pool.setMaxThreadCount(PREVIEW_CONCURRENCY)
         self._inflight: set[str] = set()
@@ -92,7 +96,26 @@ class ThumbService(QObject):
         if key in self._inflight:
             return
         self._inflight.add(key)
-        self._pool.start(_FetchJob(self, key, resource.preview, 800))
+        fetcher = None
+        if resource.path.startswith("photounlim:") and self._unlim_provider is not None:
+            # превью безлимита отдают ТОЛЬКО с куками сессии (без них 403);
+            # OAuth-заголовок тут бесполезен — сразу кукисессия, с запасным
+            # вариантом через обычный клиент на случай смены поведения
+            def fetcher(url=resource.preview):          # noqa: F811 — замыкание
+                image = None
+                unlim = self._unlim_provider()
+                if unlim is not None:
+                    try:
+                        resp = unlim.fetch(url)
+                        if resp.status_code == 200:
+                            img = QImage()
+                            if img.loadFromData(resp.content):
+                                image = img
+                    except Exception:                   # noqa: BLE001
+                        image = None
+                return image if image is not None else self._download(url)
+
+        self._pool.start(_FetchJob(self, key, resource.preview, 800, fetcher))
 
     def _download(self, url: str) -> QImage | None:
         api = self._api_provider()

@@ -2,12 +2,20 @@
 
 from __future__ import annotations
 
+import pytest
 import responses as rsplib
 
+from ydx.core import api_resources
 from ydx.core.api_client import ApiClient, StaticTokenProvider
 from ydx.core.api_resources import ResourcesApi
 
 BASE = "https://cloud-api.yandex.net/v1/disk"
+
+
+@pytest.fixture(autouse=True)
+def _single_walk_worker(monkeypatch):
+    """Моки responses срабатывают по порядку — обход дерева в один поток."""
+    monkeypatch.setattr(api_resources, "WALK_WORKERS", 1)
 
 
 def _api():
@@ -75,3 +83,63 @@ def test_list_public_total_fallback():
     items, marker = api.list_public(limit=200)
     assert len(items) == 1
     assert marker is None
+
+
+@rsplib.activate
+def test_iter_media_walks_tree_with_photostream_first():
+    """Фото = автозагрузка (новыми вперёд) + обход дерева; дубли и чужой media_type
+    отбрасываются, папка автозагрузки повторно не листается."""
+    api = _api()
+    rsplib.add(rsplib.GET, f"{BASE}/", json={
+        "total_space": 1, "used_space": 0,
+        "system_folders": {"photostream": "disk:/Camera Uploads"},
+    })
+    # 1) автозагрузка: видео отфильтруется
+    stream_items = [
+        {"name": "v.MP4", "type": "file", "path": "disk:/Camera Uploads/v.MP4",
+         "media_type": "video"},
+        {"name": "p1.JPG", "type": "file", "path": "disk:/Camera Uploads/p1.JPG",
+         "media_type": "image"},
+    ]
+    rsplib.add(rsplib.GET, f"{BASE}/resources",
+               json=_page(stream_items, 2, "disk:/Camera Uploads"))
+    # 2) корень: папки (включая автозагрузку — её скипаем) + файл в корне
+    root_items = [
+        {"name": "Camera Uploads", "type": "dir", "path": "disk:/Camera Uploads"},
+        {"name": "Screenshots", "type": "dir", "path": "disk:/Screenshots"},
+        {"name": "root.jpg", "type": "file", "path": "disk:/root.jpg",
+         "media_type": "image"},
+    ]
+    rsplib.add(rsplib.GET, f"{BASE}/resources", json=_page(root_items, 3, "disk:"))
+    # 3) вложенная папка: дубль из автозагрузки не пройдёт
+    sub_items = [
+        {"name": "p1.JPG", "type": "file", "path": "disk:/Camera Uploads/p1.JPG",
+         "media_type": "image"},
+        {"name": "shot.png", "type": "file", "path": "disk:/Screenshots/shot.png",
+         "media_type": "image"},
+    ]
+    rsplib.add(rsplib.GET, f"{BASE}/resources",
+               json=_page(sub_items, 2, "disk:/Screenshots"))
+    got = [r.path for r in api.iter_media("image")]
+    assert got == ["disk:/Camera Uploads/p1.JPG", "disk:/root.jpg",
+                   "disk:/Screenshots/shot.png"]
+    # повторный листинг автозагрузки не запрашивался: ровно 3 запроса /resources
+    assert sum(1 for c in rsplib.calls if "/resources" in c.request.url
+               and "/resources/" not in c.request.url) == 3
+
+
+@rsplib.activate
+def test_iter_media_survives_disk_info_and_folder_failures():
+    """disk_info недоступен и папка падает → обход продолжается, генератор жив."""
+    api = _api()
+    root_items = [
+        {"name": "broken", "type": "dir", "path": "disk:/broken"},
+        {"name": "ok", "type": "dir", "path": "disk:/ok"},
+    ]
+    rsplib.add(rsplib.GET, f"{BASE}/resources", json=_page(root_items, 2, "disk:"))
+    rsplib.add(rsplib.GET, f"{BASE}/resources", status=404)   # disk:/broken
+    rsplib.add(rsplib.GET, f"{BASE}/resources",
+               json=_page([{"name": "a.jpg", "type": "file", "path": "disk:/ok/a.jpg",
+                            "media_type": "image"}], 1, "disk:/ok"))
+    got = list(api.iter_media("image"))
+    assert [r.path for r in got] == ["disk:/ok/a.jpg"]

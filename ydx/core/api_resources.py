@@ -4,22 +4,32 @@
 - _embedded.items всегда сортирует папки вперёд файлов, независимо от sort;
 - пагинация offset/limit до _embedded.total;
 - мусорные пути имеют суффиксы вида trash:/foo_123456;
-- 202 + Link на операцию для «тяжёлых» copy/move/delete.
+- 202 + Link на операцию для «тяжёлых» copy/move/delete;
+- /resources/files НЕ включает системную папку автозагрузки (photostream,
+  обычно «Camera Uploads») и без sort отдаёт лишь часть диска (устаревший
+  индекс); с sort=-modified пагинация фиктивная: offset>~8 зацикленно
+  возвращает одно окно файлов. Полный список даёт только обход дерева
+  (iter_media); на листинге папки sort=-modified работает честно.
 """
 
 from __future__ import annotations
 
+import threading
 from collections.abc import Iterator
+from queue import Empty, Full, Queue
 from typing import Any
 
-from ydx.constants import MAX_PAGES, PAGE_SIZE
+from ydx.constants import MAX_PAGES, PAGE_SIZE, WALK_PAGE
 from ydx.core.api_client import ApiClient
 from ydx.core.models import Operation, Quota, Resource
+
+WALK_WORKERS = 6               # потоков обхода дерева (переопределяется в тестах)
 
 
 class ResourcesApi:
     def __init__(self, client: ApiClient) -> None:
         self.api = client
+        self._system_folders: dict[str, str] | None = None   # кэш disk_info
 
     # --- диск и метаданные ---------------------------------------------------
 
@@ -88,6 +98,98 @@ class ResourcesApi:
         items = [Resource.from_api(i) for i in d.get("items") or []]
         has_more = len(items) >= limit
         return items, (offset + len(items) if has_more else None)
+
+    def iter_media(self, media_type: str | None = None) -> Iterator[Resource]:
+        """Все фото/видео Диска: автозагрузка (новыми вперёд), затем обход дерева.
+
+        /resources/files для этого непригоден (см. шапку модуля): несортированный
+        отдаёт лишь часть диска, а с sort пагинация фиктивная. Полный и
+        стабильный листинг даёт только обход папок — папки независимы, поэтому
+        листаем их пулом потоков; итоговый порядок сортирует клиент.
+        Недоступная папка не роняет обход.
+        """
+        if self._system_folders is None:
+            try:
+                self._system_folders = self.disk_info()[1]
+            except Exception:            # без метаданных просто обойдём дерево
+                self._system_folders = {}
+        stream = self._system_folders.get("photostream")
+        seen: set[str] = set()
+        if stream:
+            for r in self.iter_dir(stream, sort="-modified", page=WALK_PAGE):
+                if media_type and r.media_type != media_type:
+                    continue
+                if r.path not in seen:
+                    seen.add(r.path)
+                    yield r
+
+        # обход дерева пулом потоков: out — готовые листинги папок, None — конец
+        dirs: Queue[str] = Queue()
+        out: Queue[list[Resource] | None] = Queue(maxsize=8)
+        state = {"pending": 1, "done": False}
+        lock = threading.Lock()
+        stop = threading.Event()
+        dirs.put("disk:/")
+
+        def put_out(x: list[Resource] | None) -> None:
+            """Постановка с таймаутом: потребитель мог уйти, тогда выходим."""
+            while not stop.is_set():
+                try:
+                    out.put(x, timeout=0.2)
+                    return
+                except Full:
+                    continue
+
+        def worker() -> None:
+            while not stop.is_set():
+                try:
+                    path = dirs.get(timeout=0.2)
+                except Empty:
+                    with lock:
+                        if state["pending"] <= 0:
+                            return
+                    continue
+                files: list[Resource] = []
+                try:
+                    for r in self.iter_dir(path, page=WALK_PAGE):
+                        if r.is_dir:
+                            if r.path == stream:    # автозагрузка уже отдана
+                                continue
+                            with lock:
+                                state["pending"] += 1
+                            dirs.put(r.path)
+                        else:
+                            files.append(r)
+                    put_out(files)
+                except Exception:        # недоступная папка — идём дальше
+                    pass
+                finally:
+                    finish = False
+                    with lock:
+                        state["pending"] -= 1
+                        if state["pending"] <= 0 and not state["done"]:
+                            state["done"] = True
+                            finish = True
+                    if finish:
+                        put_out(None)
+
+        threads = [
+            threading.Thread(target=worker, daemon=True, name="ydx-walk")
+            for _ in range(WALK_WORKERS)
+        ]
+        for t in threads:
+            t.start()
+        try:
+            while True:
+                batch = out.get()
+                if batch is None:
+                    break
+                for r in batch:
+                    if (media_type is None or r.media_type == media_type) and r.path not in seen:
+                        seen.add(r.path)
+                        yield r
+        finally:
+            stop.set()                   # потребитель ушёл — сворачиваем обход
 
     def last_uploaded(
         self, limit: int = 50, media_type: str | None = None,

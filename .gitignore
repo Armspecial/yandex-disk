@@ -19,3 +19,6 @@ downloaded.json
 build/
 dist/
 packaging/.build-venv/
+
+# PyInstaller spec (генерится в корне при сборке)
+*.spec

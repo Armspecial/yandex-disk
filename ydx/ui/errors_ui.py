@@ -12,6 +12,9 @@ from ydx.core.errors import (
     NetworkError,
     NotFoundError,
     QuotaUploadLimitError,
+    UnlimAuthError,
+    UnlimCaptchaError,
+    UnlimError,
 )
 from ydx.services import i18n
 
@@ -38,6 +41,12 @@ def api_error_text(exc: Exception) -> str:
         return i18n.tr("err.disk_full")
     if isinstance(exc, NotFoundError):
         return i18n.tr("err.not_found")
+    if isinstance(exc, UnlimAuthError):
+        return i18n.tr("unlim.err_expired")
+    if isinstance(exc, UnlimCaptchaError):
+        return i18n.tr("unlim.err_captcha")
+    if isinstance(exc, UnlimError):
+        return i18n.tr("err.unknown", err=exc)
     if isinstance(exc, ApiError):
         return f"{exc.code}: {exc.description}"
     return i18n.tr("err.unknown", err=exc)

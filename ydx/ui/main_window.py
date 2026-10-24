@@ -113,9 +113,17 @@ class MainWindow(QMainWindow):
 
         self.setCentralWidget(central)
 
+        # безлимитная автозагрузка (внутреннее web-API по кукам) — до превью:
+        # ThumbService использует его как фолбэк для своих загрузок
+        from ydx.services.unlim import UnlimService
+        self.unlim = UnlimService(settings, accounts, parent=self)
+
         # сервис превью (общий для разделов)
         from ydx.services.thumbs import ThumbService
-        self.thumbs = ThumbService(lambda: self._accounts.api)
+        self.thumbs = ThumbService(
+            lambda: self._accounts.api,
+            unlim_provider=lambda: getattr(self, "unlim", None),
+        )
 
         # --- связи ---
         self.sidebar.section_changed.connect(self._show_section)
@@ -201,7 +209,10 @@ class MainWindow(QMainWindow):
         self.recent_page = RecentPage(accounts, self.thumbs, self.state_service)
         self.recent_page.show_in_folder_requested.connect(self._show_in_folder)
         self.replace_page("recent", self.recent_page)
-        self.photos_page = PhotosPage(accounts, self.thumbs, self.state_service)
+        self.photos_page = PhotosPage(
+            accounts, self.thumbs, self.state_service,
+            unlim=self.unlim, engine=self.engine, settings=settings,
+        )
         self.replace_page("photos", self.photos_page)
         self.shares_page = SharesPage(accounts, self.thumbs, self.state_service)
         self.replace_page("shares", self.shares_page)
@@ -378,7 +389,8 @@ class MainWindow(QMainWindow):
         from ydx.ui.dialogs.settings_dlg import SettingsDialog
 
         dlg = SettingsDialog(self._settings, QApplication.instance(), self,
-                             daemon=self.daemon, accounts=self._accounts)
+                             daemon=self.daemon, accounts=self._accounts,
+                             unlim=self.unlim)
         dlg.set_secure(self._token_secure)
         dlg.exec()
         dlg.deleteLater()

@@ -17,7 +17,7 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ydx import __version__
+from ydx import full_version
 from ydx.constants import APP_ID
 from ydx.services import i18n
 from ydx.services.settings import AppSettings
@@ -35,12 +35,13 @@ AUTOSTART_DESKTOP = (
 
 class SettingsDialog(QDialog):
     def __init__(self, settings: AppSettings, app, parent=None, daemon=None,
-                 accounts=None) -> None:
+                 accounts=None, unlim=None) -> None:
         super().__init__(parent)
         self._settings = settings
         self._app = app
         self._daemon = daemon
         self._accounts = accounts
+        self._unlim = unlim
 
         self.setModal(True)
         self.setMinimumSize(480, 520)
@@ -133,9 +134,26 @@ class SettingsDialog(QDialog):
         col.addWidget(storage)
         self._update_account_label()
 
+        # безлимитная автозагрузка: куки браузерной сессии (REST её не отдаёт)
+        if self._unlim is not None:
+            unlim_box = QGroupBox(i18n.tr("settings.unlim"))
+            self._unlim_box = unlim_box
+            urow = QHBoxLayout(unlim_box)
+            self.unlim_status_label = QLabel()
+            self.unlim_status_label.setObjectName("dialogHint")
+            urow.addWidget(self.unlim_status_label, 1)
+            self.unlim_web_btn = QPushButton()
+            self.unlim_web_btn.clicked.connect(self._open_unlim_web)
+            urow.addWidget(self.unlim_web_btn)
+            self.unlim_btn = QPushButton(i18n.tr("settings.unlim_configure"))
+            self.unlim_btn.clicked.connect(self._open_unlim)
+            urow.addWidget(self.unlim_btn)
+            col.addWidget(unlim_box)
+            self._update_unlim_status()
+
         col.addStretch(1)
 
-        about = QLabel(i18n.tr("settings.about_text", version=__version__))
+        about = QLabel(i18n.tr("settings.about_text", version=full_version()))
         about.setObjectName("dialogHint")
         about.setWordWrap(True)
         col.addWidget(about)
@@ -244,6 +262,27 @@ class SettingsDialog(QDialog):
             self._settings.set("downloads_dir", folder)
             self._update_downloads_label()
 
+    def _open_unlim(self) -> None:
+        from ydx.ui.dialogs.unlim_dlg import UnlimDialog
+
+        UnlimDialog(self._settings, self._unlim, self).exec()
+        self._update_unlim_status()
+
+    def _open_unlim_web(self) -> None:
+        """Сразу открыть веб-раздел «Фото» — где вход и копирование Cookie."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+
+        from ydx.core.unlim_api import PHOTOS_URL
+
+        QDesktopServices.openUrl(QUrl(PHOTOS_URL))
+
+    def _update_unlim_status(self) -> None:
+        self.unlim_status_label.setText(
+            i18n.tr("unlim.status_set") if self._unlim.has_cookies
+            else i18n.tr("unlim.status_none")
+        )
+
     def _autostart_toggled(self, on: bool) -> None:
         AUTOSTART_FILE.parent.mkdir(parents=True, exist_ok=True)
         if on:
@@ -272,6 +311,11 @@ class SettingsDialog(QDialog):
             self._sync_box.setTitle(i18n.tr("sync.title"))
             self.sync_now_btn.setText(i18n.tr("sync.sync_now"))
             self._update_sync_folder_label()
+        if hasattr(self, "_unlim_box"):
+            self._unlim_box.setTitle(i18n.tr("settings.unlim"))
+            self.unlim_web_btn.setText(i18n.tr("unlim.open_web"))
+            self.unlim_btn.setText(i18n.tr("settings.unlim_configure"))
+            self._update_unlim_status()
         self._theme_row.setText(i18n.tr("settings.theme"))
         self._lang_row.setText(i18n.tr("settings.language"))
         for value, key in (("system", "settings.theme.system"),
