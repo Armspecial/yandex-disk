@@ -187,11 +187,15 @@ class PhotosPage(QWidget):
         self.albums_view.open_requested.connect(self._open_album)
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
-        # таймлайн перестраивается по мере сбора (сортирует и группирует сам)
+        # таймлайн перестраивается по мере сбора (сортирует и группирует сам);
+        # reset приходит и от begin_collect (пусто), и от set_items (кэш
+        # сессии при возврате в раздел) — в обоих случаях отражаем модель
         self.model.rowsInserted.connect(
             lambda *_: self.timeline.set_photos(self.model.items)
         )
-        self.model.modelReset.connect(lambda: self.timeline.set_photos([]))
+        self.model.modelReset.connect(
+            lambda: self.timeline.set_photos(self.model.items)
+        )
 
         # кнопка «Скачать» живёт выделением текущей вьюхи
         self._wire_selection(self.view)

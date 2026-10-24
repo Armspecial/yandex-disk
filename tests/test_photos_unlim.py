@@ -250,6 +250,24 @@ def test_dates_changed_invalidates_cache(qapp, tmp_path):
     assert not page._collected
 
 
+def test_return_to_section_keeps_timeline(qapp, tmp_path):
+    """Возврат из другого раздела: лента из кэша сессии — таймлайн НЕ пустеет
+    (счётчик есть, а фото пропадали — reset затирал таймлайн)."""
+    unlim = _StubUnlim([_res("photounlim:/u.jpg", "2026-01-01T00:00:00+00:00")])
+    page = _page(qapp, [[_res("disk:/a.jpg", "2024-01-01T00:00:00+00:00")]],
+                 unlim, tmp_path)
+    page.on_shown()
+    _pump()
+    assert page.model.rowCount() == 2
+    rows_with_photos = page.timeline.timeline_model.rowCount()
+    assert rows_with_photos > 0
+
+    page.on_shown()                                      # как возврат в раздел
+    _pump()
+    assert page.model.rowCount() == 2
+    assert page.timeline.timeline_model.rowCount() == rows_with_photos
+
+
 def test_download_selected_splits_sources(qapp, tmp_path, monkeypatch):
     """REST → движок передач, безлимит → unlim_download по прямым ссылкам."""
     from ydx.services import openers
