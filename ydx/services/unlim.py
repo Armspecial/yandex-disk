@@ -241,6 +241,22 @@ class UnlimService(QObject):
             raise RuntimeError("no cookies")
         return client.count()
 
+    def preview_url(self, path: str) -> str | None:
+        """Свежая ссылка превью — когда кэшная из ленты уже не отвечает."""
+        from ydx.core import unlim_api
+
+        client = self.client
+        if client is None or not path.startswith("photounlim:/"):
+            return None
+        web = "/photounlim/" + path[len("photounlim:/"):]
+        try:
+            info = client.bulk_info([web]).get(web) or {}
+        except Exception as exc:  # noqa: BLE001 — превью не критично
+            log.debug("preview refresh failed for %s: %s", path, exc)
+            return None
+        resource = unlim_api.map_resource_info(info)
+        return resource.preview if resource else None
+
     def download_links(self, resources: list[Resource]) -> dict[str, str]:
         """Свежие ссылки на оригиналы: {path ресурса: url}."""
         client = self.client

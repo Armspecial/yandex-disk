@@ -99,20 +99,29 @@ class ThumbService(QObject):
         fetcher = None
         if resource.path.startswith("photounlim:") and self._unlim_provider is not None:
             # превью безлимита отдают ТОЛЬКО с куками сессии (без них 403);
-            # OAuth-заголовок тут бесполезен — сразу кукисессия, с запасным
-            # вариантом через обычный клиент на случай смены поведения
-            def fetcher(url=resource.preview):          # noqa: F811 — замыкание
+            # кэшная ссылка могла протухнуть — вторая попытка со свежей
+            def fetcher(url=resource.preview, res=resource):  # noqa: F811
                 image = None
                 unlim = self._unlim_provider()
                 if unlim is not None:
-                    try:
-                        resp = unlim.fetch(url)
-                        if resp.status_code == 200:
-                            img = QImage()
-                            if img.loadFromData(resp.content):
-                                image = img
-                    except Exception:                   # noqa: BLE001
-                        image = None
+                    candidates = [url]
+                    fresh = getattr(unlim, "preview_url", None)
+                    if callable(fresh):
+                        candidates.append(fresh(res.path))
+                    for candidate in candidates:
+                        if not candidate:
+                            continue
+                        try:
+                            resp = unlim.fetch(candidate)
+                            if resp.status_code == 200:
+                                img = QImage()
+                                if img.loadFromData(resp.content):
+                                    image = img
+                                    break
+                        except Exception as exc:       # noqa: BLE001
+                            log.warning("unlim thumb %s: %s", res.path, exc)
+                if image is None:
+                    log.warning("unlim thumb failed %s", resource.path)
                 return image if image is not None else self._download(url)
 
         self._pool.start(_FetchJob(self, key, resource.preview, 800, fetcher))

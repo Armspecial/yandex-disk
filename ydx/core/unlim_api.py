@@ -30,6 +30,7 @@ from __future__ import annotations
 
 import random
 import re
+import threading
 import time
 from collections.abc import Iterator
 from datetime import datetime, timezone
@@ -173,6 +174,9 @@ class UnlimClient:
         self._timeout = timeout
         self._sk: str | None = None
         self._uid: str | None = None
+        # requests.Session не потокобезопасен, а клиент зовут из пула
+        # миниатюр, обхода ленты и перегруппировки дат одновременно
+        self._lock = threading.Lock()
         self._session = requests.Session()
         self._session.headers.update({
             "Content-Type": "application/json",
@@ -186,8 +190,9 @@ class UnlimClient:
 
     def _scrape(self) -> None:
         """sk/uid из HTML главной; сессия без куки уводит на паспорт."""
-        resp = self._session.get(self._base + "/", timeout=self._timeout,
-                                 allow_redirects=False)
+        with self._lock:
+            resp = self._session.get(self._base + "/", timeout=self._timeout,
+                                     allow_redirects=False)
         if resp.status_code in (301, 302, 303, 307, 308):
             raise UnlimAuthError("session redirected to "
                                  + resp.headers.get("Location", "?"))
@@ -199,12 +204,13 @@ class UnlimClient:
         self._uid = uid.group(1) if uid else ""
 
     def _post(self, method: str, payload: dict) -> requests.Response:
-        return self._session.post(
-            f"{self._base}/models-v2",
-            params={"m": method},
-            json=payload,
-            timeout=self._timeout,
-        )
+        with self._lock:
+            return self._session.post(
+                f"{self._base}/models-v2",
+                params={"m": method},
+                json=payload,
+                timeout=self._timeout,
+            )
 
     def _call(self, method: str, request_params: dict | None = None,
               _rescrape: bool = True) -> dict:
@@ -355,7 +361,8 @@ class UnlimClient:
 
     def fetch(self, url: str, stream: bool = False) -> requests.Response:
         """GET произвольной ссылки кукисессией (превью/скачивание)."""
-        return self._session.get(url, timeout=self._timeout, stream=stream)
+        with self._lock:
+            return self._session.get(url, timeout=self._timeout, stream=stream)
 
 
 def _json_body(resp: requests.Response) -> dict:

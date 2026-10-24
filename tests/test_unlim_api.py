@@ -280,6 +280,37 @@ def test_download_links_fresh_batch():
                      "https://1.downloader.disk.yandex.ru/disk/orig"}
 
 
+@rsplib.activate
+def test_fetch_from_many_threads():
+    """Миниатюры грузятся пулом потоков: клиент обязан пережить гонку."""
+    import threading
+
+    png = (b"\x89PNG\r\n\x1a\n\x00\x00\x00\rIHDR\x00\x00\x00\x01\x00\x00"
+           b"\x00\x01\x08\x06\x00\x00\x00\x1f\x15\xc4\x89\x00\x00\x00\n"
+           b"IDATx\x9cc\x00\x01\x00\x00\x05\x00\x01\r\n-\xb4\x00\x00\x00"
+           b"\x00IEND\xaeB`\x82")
+    rsplib.add(rsplib.GET, "https://cdn.test/p.jpg", body=png,
+               content_type="image/png")
+
+    client = UnlimClient(COOKIES)
+    out = []
+    errors = []
+
+    def worker():
+        try:
+            r = client.fetch("https://cdn.test/p.jpg")
+            out.append(r.status_code == 200 and r.content == png)
+        except Exception as exc:                     # noqa: BLE001
+            errors.append(exc)
+
+    threads = [threading.Thread(target=worker) for _ in range(8)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join()
+    assert not errors and all(out)
+
+
 # --- маппинг ---------------------------------------------------------------------
 
 

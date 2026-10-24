@@ -412,3 +412,27 @@ def test_refresh_date_overrides(qapp, store_dir, tmp_path, monkeypatch):
         ("disk:/Cam/rescued.jpg", oct10), ("disk:/Cam/fresh.jpg", oct10)])
     assert changed2 == 0
     assert fired == [1]
+
+
+def test_preview_url_refresh(qapp, store_dir, monkeypatch):
+    """Свежая ссылка превью для фотounlim-пути; без кук и не-photounlim — None."""
+    from ydx.services.unlim import UnlimService
+
+    accounts = _accounts(qapp, ["u"], "u")
+    service = UnlimService(_StubSettings(), accounts)
+    assert service.preview_url("photounlim:/x.jpg") is None      # кук нет
+
+    service.save_cookies("Session_id=t")
+    assert service.preview_url("disk:/x.jpg") is None            # не безлимит
+
+    class _FakeClient:
+        def bulk_info(self, paths):
+            return {"/photounlim/pic.jpg": {
+                "id": "/photounlim/pic.jpg", "name": "pic.jpg",
+                "meta": {"mimetype": "image/jpeg", "etime": 1791388420,
+                         "sizes": [{"name": "XL", "url": "//2.t/preview/x"}]},
+            }}
+
+    service._client = _FakeClient()
+    service._client_login = "u"
+    assert service.preview_url("photounlim:/pic.jpg") == "https://2.t/preview/x"
