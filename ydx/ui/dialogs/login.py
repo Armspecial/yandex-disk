@@ -6,6 +6,7 @@
 
 from __future__ import annotations
 
+import logging
 from typing import Callable
 
 from PySide6.QtCore import Qt, QUrl, QTimer
@@ -30,6 +31,8 @@ from ydx.core.oauth import OAuthClient, RedirectListener, new_state
 from ydx.services import i18n
 from ydx.services.settings import AppSettings
 from ydx.services.workers import run_in_thread
+
+log = logging.getLogger(__name__)
 
 PAGE_CONFIG, PAGE_METHODS, PAGE_DEVICE, PAGE_BROWSER, PAGE_PASTE, PAGE_BUSY = range(6)
 
@@ -352,6 +355,8 @@ class LoginDialog(QDialog):
     # --- ошибки и переводы -------------------------------------------------------------
 
     def _show_error_exc(self, exc: Exception) -> None:
+        # полный контекст — в лог: с баннера пользователь пересказывает неточно
+        log.warning("вход не удался: %s: %s", type(exc).__name__, exc)
         key = "login.err_network" if isinstance(exc, NetworkError) else "login.err_auth"
         self._show_error(i18n.tr(key, err=exc))
 

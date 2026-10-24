@@ -9,6 +9,7 @@
 set -euo pipefail
 DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$DIR"
+REV="${1:-1}"   # ревизия пакета: ./make_deb.sh 2 → yandex-disk-linux_0.1.0-2
 
 pin() {  # pin <пакет> — версия из requirements.txt
     grep -oP "(?<=$1==)[0-9.]+" requirements.txt
@@ -67,7 +68,7 @@ SIZE_KB="$(du -sk --apparent-size "$PKG/opt" | cut -f1)"
 
 cat > "$PKG/DEBIAN/control" <<EOF
 Package: yandex-disk-linux
-Version: $VERSION-1
+Version: $VERSION-$REV
 Section: net
 Priority: optional
 Architecture: amd64
@@ -91,7 +92,7 @@ EOF
 chmod 755 "$PKG/DEBIAN/postinst"
 
 # --- 4. Сборка -----------------------------------------------------------------
-DEB="dist/yandex-disk-linux_${VERSION}-1_amd64.deb"
+DEB="dist/yandex-disk-linux_${VERSION}-${REV}_amd64.deb"
 dpkg-deb --build --root-owner-group "$PKG" "$DEB"
 rm -rf "$PKG"
 
