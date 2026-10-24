@@ -24,11 +24,9 @@ SCOPES = (
     "cloud_api:disk.info cloud_api:disk.app_folder"
 )
 
-# Встроенный OAuth-ключ приложения (личная регистрация владельца приложения;
-# настройки/свой ключ имеют приоритет). Даёт вход «одним кликом через Яндекс ID»
-# без страниц с ClientID/Secret.
-DEFAULT_CLIENT_ID = "REMOVED-LEAKED-KEY"
-DEFAULT_CLIENT_SECRET = "REMOVED-LEAKED-KEY"
+# OAuth-ключ приложением НЕ вшит: свой ClientID/Secret пользователь вводит
+# при первом входе (они хранятся в settings.ini, права 0600).
+# Регистрация: https://oauth.yandex.ru/client/new/ (см. README).
 
 # --- Лимиты и поведение -----------------------------------------------------
 PAGE_SIZE = 200                # элементов на страницу листинга

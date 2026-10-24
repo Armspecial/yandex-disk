@@ -2,9 +2,19 @@
 
 from __future__ import annotations
 
+import os
+
 from PySide6.QtCore import QSettings
 
 from ydx.constants import SETTINGS_FILE
+
+
+def _secure_file() -> None:
+    """settings.ini содержит client_secret — только владелец (0600)."""
+    try:
+        os.chmod(SETTINGS_FILE, 0o600)
+    except OSError:
+        pass  # файла ещё нет или FS без chmod — не критично
 
 DEFAULTS = {
     "theme": "system",            # system | light | dark
@@ -30,6 +40,7 @@ _BOOL = {"true", "false"}
 class AppSettings:
     def __init__(self) -> None:
         self._s = QSettings(str(SETTINGS_FILE), QSettings.IniFormat)
+        _secure_file()
 
     def get(self, key: str):
         default = DEFAULTS[key]
@@ -48,6 +59,7 @@ class AppSettings:
     def set(self, key: str, value) -> None:
         self._s.setValue(key, value)
         self._s.sync()
+        _secure_file()
 
     # Часто используемые — короткие свойства
     @property
@@ -60,12 +72,8 @@ class AppSettings:
 
     @property
     def client_id(self) -> str:
-        from ydx.constants import DEFAULT_CLIENT_ID
-
-        return self.get("client_id") or DEFAULT_CLIENT_ID
+        return self.get("client_id")
 
     @property
     def client_secret(self) -> str:
-        from ydx.constants import DEFAULT_CLIENT_SECRET
-
-        return self.get("client_secret") or DEFAULT_CLIENT_SECRET
+        return self.get("client_secret")
