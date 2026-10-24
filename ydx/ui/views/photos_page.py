@@ -21,7 +21,7 @@ from ydx.services.thumbs import ThumbService
 from ydx.ui.dialogs.prompts import PropertiesDialog
 from ydx.ui.views.files_view import FilesView
 from ydx.ui.views.resource_list import ResourceListModel
-from ydx.ui.views.viewer import PhotoViewer
+from ydx.ui.views.viewer import PhotoViewer, VideoViewer, viewer_kind
 
 
 def group_albums(resources: list[Resource]) -> list[dict]:
@@ -54,6 +54,7 @@ class PhotosPage(QWidget):
         self._thumbs = thumbs
         self._state = state_service
         self._albums: list[dict] = []
+        self._media = "image"           # image | video — переключатель в шапке
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
@@ -95,6 +96,17 @@ class PhotosPage(QWidget):
         self.albums_btn.clicked.connect(lambda: self._switch_mode("albums"))
         hlay.addWidget(self.all_btn)
         hlay.addWidget(self.albums_btn)
+
+        # фото или видео: автозагрузка телефона даёт и то и другое
+        self.photo_btn = QPushButton()
+        self.video_btn = QPushButton()
+        for btn, kind in ((self.photo_btn, "image"), (self.video_btn, "video")):
+            btn.setCheckable(True)
+            btn.setProperty("class", "flat")
+            btn.clicked.connect(lambda _=False, k=kind: self._set_media(k))
+        self.photo_btn.setChecked(True)
+        hlay.addWidget(self.photo_btn)
+        hlay.addWidget(self.video_btn)
         col.addWidget(header)
 
         self.stack = QStackedWidget()
@@ -158,12 +170,22 @@ class PhotosPage(QWidget):
 
         def fetcher(offset: int, limit: int):
             items, marker = resources.flat_files(
-                media_type="image", offset=offset, limit=limit
+                media_type=self._media, offset=offset, limit=limit
             )
             return items, marker
 
         self.model.set_fetcher(fetcher)
         self._update_states()
+
+    def _set_media(self, kind: str) -> None:
+        """Переключение «Фото / Видео»: смена источника и возврат в «Все»."""
+        if kind == self._media:
+            return
+        self._media = kind
+        self.photo_btn.setChecked(kind == "image")
+        self.video_btn.setChecked(kind == "video")
+        self._switch_mode("all")
+        self.on_shown()
 
     def _switch_mode(self, mode: str) -> None:
         self._mode = mode
@@ -242,6 +264,9 @@ class PhotosPage(QWidget):
             self.model.items if self.view.model() is self.sort_proxy
             else self.album_photos_model.items
         )
+        if viewer_kind(resource) == "video":
+            VideoViewer(resource, items, self).exec()
+            return
         index = 0
         for i, r in enumerate(items):
             if r.path == resource.path:
@@ -281,6 +306,8 @@ class PhotosPage(QWidget):
         self.empty_label.setText(i18n.tr("photos.empty"))
         self.all_btn.setText(i18n.tr("photos.all"))
         self.albums_btn.setText(i18n.tr("photos.albums"))
+        self.photo_btn.setText(i18n.tr("photos.tab_photo"))
+        self.video_btn.setText(i18n.tr("photos.tab_video"))
         self.back_btn.setText(i18n.tr("photos.back_albums"))
         self.counter.setText(i18n.tr("photos.count", n=self.model.rowCount()))
         for value, key in (("modified", "photos.sort.date"),

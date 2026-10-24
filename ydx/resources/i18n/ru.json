@@ -246,5 +246,7 @@
   "signedout.title": "Вы вышли из аккаунта",
   "signedout.hint": "Чтобы работать с Диском, войдите через Яндекс ID — это один клик.",
   "signedout.login": "Войти через Яндекс ID",
-  "login.change_key": "Изменить OAuth-ключ (ClientID / ClientSecret)"
+  "login.change_key": "Изменить OAuth-ключ (ClientID / ClientSecret)",
+  "photos.tab_photo": "Фото",
+  "photos.tab_video": "Видео"
 }

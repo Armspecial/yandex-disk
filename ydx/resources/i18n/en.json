@@ -246,5 +246,7 @@
   "signedout.title": "You are signed out",
   "signedout.hint": "Sign in with Yandex ID to work with your Disk — one click.",
   "signedout.login": "Sign in with Yandex ID",
-  "login.change_key": "Change OAuth key (ClientID / ClientSecret)"
+  "login.change_key": "Change OAuth key (ClientID / ClientSecret)",
+  "photos.tab_photo": "Photos",
+  "photos.tab_video": "Videos"
 }
