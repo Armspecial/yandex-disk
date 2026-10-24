@@ -14,3 +14,8 @@ daemon.cfg
 passwd
 downloaded.json
 
+
+# Сборка .deb (PyInstaller)
+build/
+dist/
+packaging/.build-venv/

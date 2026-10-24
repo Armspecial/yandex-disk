@@ -1,0 +1,13 @@
+[Desktop Entry]
+Type=Application
+Name=Yandex Disk
+Name[ru]=Яндекс Диск
+GenericName=Cloud Storage
+GenericName[ru]=Облачное хранилище
+Comment=Unofficial Yandex Disk client for Linux
+Comment[ru]=Неофициальный клиент Яндекс Диска для Linux
+Exec=/usr/bin/yandex-disk-linux
+Icon=yandex-disk-linux
+Terminal=false
+Categories=Network;FileTools;
+StartupWMClass=yandex-disk-linux
