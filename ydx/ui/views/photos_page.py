@@ -217,6 +217,8 @@ class PhotosPage(QWidget):
         # куки безлимита сменились — пересобрать ленту
         if self._unlim is not None:
             self._unlim.cookies_changed.connect(lambda: self._invalidate())
+            # уточнились даты съёмки — перегруппировать таймлайн
+            self._unlim.dates_changed.connect(lambda: self._invalidate())
 
     # --- режимы ------------------------------------------------------------------
 
@@ -257,6 +259,7 @@ class PhotosPage(QWidget):
                 self._collected[self._media] = self.model.items
                 self._update_states()
                 self._update_unlim_strip()
+                self._maybe_refresh_dates()
 
         def failed(_exc: Exception) -> None:
             if collect_id != self._collect_id:
@@ -270,10 +273,17 @@ class PhotosPage(QWidget):
     def _merged_iter(self, resources):
         """Лента: сначала весь Диск (REST), затем безлимит (внутреннее API).
 
+        REST-фото группируются по дате изменения, а сайт — по дате съёмки:
+        к перезалитым фото применяем EXIF-даты из кэша (дорабатывается фоном).
         Ошибка безлимита не должна ронять REST-часть — запоминаем её
         для полосы состояния и заканчиваем выдачу.
         """
-        yield from resources.iter_media(self._media)
+        from dataclasses import replace
+
+        overrides = self._unlim.date_overrides() if self._unlim is not None else {}
+        for r in resources.iter_media(self._media):
+            override = overrides.get(r.path)
+            yield replace(r, modified=override) if override is not None else r
         if (self._unlim is None or not self._unlim.enabled
                 or not self._unlim.has_cookies):
             return
@@ -281,6 +291,26 @@ class PhotosPage(QWidget):
             yield from self._unlim.iter_media(self._media)
         except Exception as exc:  # noqa: BLE001 — лента важнее
             self._unlim_error = exc
+
+    def _maybe_refresh_dates(self) -> None:
+        """Фоном уточнить даты съёмки REST-фото (батчи по 50, раз в неделю):
+        готово → dates_changed → лента перегруппируется «как на сайте»."""
+        if (self._unlim is None or not self._unlim.has_cookies
+                or self._unlim.redates_fresh()):
+            return
+        stamped = [
+            (r.path, r.modified) for r in self.model.items
+            if not r.is_dir and r.path.startswith("disk:/")
+        ]
+        if not stamped:
+            return
+        from ydx.services.workers import run_in_thread
+
+        run_in_thread(
+            lambda: self._unlim.refresh_date_overrides(stamped),
+            lambda _n: None,
+            lambda _e: None,
+        )
 
     def _collect_next(self, pull, done, failed=None) -> None:
         from ydx.services.workers import run_in_thread

@@ -362,3 +362,53 @@ def test_feed_cache_roundtrip_dates(qapp, store_dir, tmp_path, monkeypatch):
     assert loaded[0].modified == item.modified         # даты пережили JSON
     cache.clear()
     assert cache.load() is None
+
+
+# --- EXIF-даты REST-фото -------------------------------------------------------
+
+
+def test_refresh_date_overrides(qapp, store_dir, tmp_path, monkeypatch):
+    """Разошедшийся день → переопределение; совпавший и пустой — нет."""
+    from datetime import datetime, timezone
+    from ydx import constants as const
+
+    monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
+    from ydx.services.unlim import UnlimService
+
+    accounts = _accounts(qapp, ["u"], "u")
+    service = UnlimService(_StubSettings(), accounts)
+    service._sleep = lambda _s: None
+
+    oct7 = datetime(2026, 10, 7, 15, 53, 40, tzinfo=timezone.utc)
+    oct10 = datetime(2026, 10, 10, 9, 0, 0, tzinfo=timezone.utc)
+
+    class _FakeClient:
+        def bulk_info(self, paths):
+            return {
+                "/disk/Cam/rescued.jpg": {"meta": {"etime": int(oct7.timestamp())}},
+                "/disk/Cam/fresh.jpg": {"meta": {"etime": int(oct10.timestamp())}},
+                "/disk/Cam/noexif.jpg": {},
+            }
+
+    service._client = _FakeClient()
+    service._client_login = "u"
+    fired = []
+    service.dates_changed.connect(lambda: fired.append(1))
+
+    changed = service.refresh_date_overrides([
+        ("disk:/Cam/rescued.jpg", oct10),              # съёмка 7-е, изменение 10-е
+        ("disk:/Cam/fresh.jpg", oct10),                # совпало — не трогаем
+        ("disk:/Cam/noexif.jpg", oct10),               # без EXIF — мимо
+        ("photounlim:/x.jpg", oct7),                   # не disk:/ — мимо
+    ])
+    assert changed == 1
+    assert fired == [1]
+    overrides = service.date_overrides()
+    assert overrides == {"disk:/Cam/rescued.jpg": oct7}
+    assert service.redates_fresh()                     # кэш дат свежий
+
+    # повторный прогон: те же расхождения — ничего нового, сигнал молчит
+    changed2 = service.refresh_date_overrides([
+        ("disk:/Cam/rescued.jpg", oct10), ("disk:/Cam/fresh.jpg", oct10)])
+    assert changed2 == 0
+    assert fired == [1]

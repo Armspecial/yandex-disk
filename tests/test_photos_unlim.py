@@ -64,6 +64,7 @@ class _StubUnlim:
 
         class _Impl(QObject):
             cookies_changed = Signal()
+            dates_changed = Signal()
 
         self._obj = _Impl()
         self.items = items or []
@@ -71,10 +72,27 @@ class _StubUnlim:
         self.seen_media: list = []
         self.enabled = True
         self.has_cookies = True
+        self.overrides: dict = {}
+        self._redates_fresh = False
+        self.refreshed: list = []
 
     @property
     def cookies_changed(self):
         return self._obj.cookies_changed
+
+    @property
+    def dates_changed(self):
+        return self._obj.dates_changed
+
+    def redates_fresh(self) -> bool:
+        return self._redates_fresh
+
+    def date_overrides(self) -> dict:
+        return self.overrides
+
+    def refresh_date_overrides(self, stamped) -> int:
+        self.refreshed.append(stamped)
+        return 0
 
     def iter_media(self, media_type=None):
         self.seen_media.append(media_type)
@@ -202,6 +220,34 @@ def test_media_toggle_reaches_unlim(qapp, tmp_path):
     _pump()
     assert unlim.seen_media == ["image", "video"]
     assert page.model.rowCount() == 1
+
+
+def test_exif_overrides_regroup_rest_photos(qapp, tmp_path):
+    """REST-фото с датой изменения ≠ дате съёмки: в ленте — дата съёмки."""
+    unlim = _StubUnlim([])
+    unlim.overrides = {
+        "disk:/Cam/rescued.jpg":
+            datetime.fromisoformat("2026-10-07T19:53:40+00:00"),
+    }
+    page = _page(qapp, [[_res("disk:/Cam/rescued.jpg", "2026-10-20T10:00:00+00:00")]],
+                 unlim, tmp_path)
+    page.on_shown()
+    _pump()
+
+    assert page.model.items[0].modified == datetime.fromisoformat(
+        "2026-10-07T19:53:40+00:00")                     # EXIF, не 20-е число
+    assert unlim.refreshed and unlim.refreshed[0][0][0] == "disk:/Cam/rescued.jpg"
+
+
+def test_dates_changed_invalidates_cache(qapp, tmp_path):
+    unlim = _StubUnlim([_res("photounlim:/u.jpg", "2026-01-01T00:00:00+00:00")])
+    page = _page(qapp, [[]], unlim, tmp_path)
+    page.on_shown()
+    _pump()
+    assert page._collected["image"]
+
+    unlim.dates_changed.emit()                           # даты уточнились
+    assert not page._collected
 
 
 def test_download_selected_splits_sources(qapp, tmp_path, monkeypatch):

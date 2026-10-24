@@ -29,6 +29,7 @@ from ydx.services.settings import AppSettings
 log = logging.getLogger(__name__)
 
 FEED_TTL = 12 * 3600                # сколько кэш ленты считается свежим
+REDATES_TTL = 7 * 24 * 3600         # EXIF-даты стабильнее — обновляем реже
 
 
 def _resource_to_dict(r: Resource) -> dict:
@@ -77,14 +78,38 @@ class UnlimFeedCache:
             return None
         return saved_at, items
 
+    def load_redates(self) -> tuple[float, dict[str, str]]:
+        """({путь ресурса: ISO-дата}, timestamp обновления) — EXIF-даты REST-фото."""
+        try:
+            data = json.loads(self._file.read_text("utf-8"))
+            redates = data.get("redates") or {}
+            if not isinstance(redates, dict):
+                redates = {}
+            return float(data.get("redates_at") or 0), redates
+        except (OSError, ValueError, TypeError):
+            return 0.0, {}
+
     def save(self, items: list[Resource]) -> None:
+        self._write({"saved_at": time.time(),
+                     "items": [_resource_to_dict(r) for r in items]})
+
+    def save_redates(self, redates: dict[str, str]) -> None:
+        """Дописать EXIF-даты, не трогая саму ленту (файл мог обновиться)."""
+        try:
+            data = json.loads(self._file.read_text("utf-8"))
+        except (OSError, ValueError):
+            data = {}
+        merged = dict(data.get("redates") or {})
+        merged.update(redates)
+        data["redates"] = merged
+        data["redates_at"] = time.time()
+        self._write(data)
+
+    def _write(self, data: dict) -> None:
         try:
             self._file.parent.mkdir(parents=True, exist_ok=True)
             tmp = self._file.with_suffix(".tmp")
-            tmp.write_text(json.dumps({
-                "saved_at": time.time(),
-                "items": [_resource_to_dict(r) for r in items],
-            }, ensure_ascii=False), "utf-8")
+            tmp.write_text(json.dumps(data, ensure_ascii=False), "utf-8")
             tmp.replace(self._file)
         except OSError as exc:
             log.debug("unlim feed cache write failed: %s", exc)
@@ -148,6 +173,7 @@ class UnlimService(QObject):
     """Куки + клиент внутреннего API для активного аккаунта."""
 
     cookies_changed = Signal()
+    dates_changed = Signal()         # обновились EXIF-даты ленты
 
     def __init__(self, settings: AppSettings, accounts: AccountManager,
                  store: UnlimCookieStore | None = None, parent=None) -> None:
@@ -157,6 +183,7 @@ class UnlimService(QObject):
         self._store = store or UnlimCookieStore()
         self._client: UnlimClient | None = None
         self._client_login: str | None = None
+        self._sleep = time.sleep          # пауза между батчами (подмена в тестах)
         accounts.active_changed.connect(lambda _a: self._reset_client())
         accounts.accounts_changed.connect(lambda _l: self._prune())
 
@@ -255,6 +282,80 @@ class UnlimService(QObject):
             return False
         adopted = self.adopt_browser_cookies()
         return bool(adopted and adopted[2])
+
+    # --- EXIF-даты для REST-фото ------------------------------------------------
+
+    def date_overrides(self) -> dict:
+        """{путь disk:/…: datetime съёмки} — фото с датой, отличной от REST."""
+        from datetime import datetime
+
+        login = self._active_login()
+        if login is None:
+            return {}
+        _stamp, raw = UnlimFeedCache(login).load_redates()
+        overrides: dict = {}
+        for path, iso in raw.items():
+            try:
+                overrides[path] = datetime.fromisoformat(iso)
+            except (TypeError, ValueError):
+                continue
+        return overrides
+
+    def redates_fresh(self) -> bool:
+        login = self._active_login()
+        if login is None:
+            return False
+        stamp, _raw = UnlimFeedCache(login).load_redates()
+        return bool(stamp) and time.time() - stamp < REDATES_TTL
+
+    def refresh_date_overrides(self, stamped: list) -> int:
+        """Перегруппировка ленты «как на сайте»: EXIF-дата вместо даты изменения.
+
+        stamped — [(путь disk:/…, REST-modified)]. Обход батчами по 50 через
+        bulk-resource-info; в кэш уходят только расхождения дня. Возвращает
+        число обновлённых фото; при изменениях испускается dates_changed.
+        """
+        import random
+
+        from ydx.core import unlim_api
+
+        client = self.client
+        login = self._active_login()
+        if client is None or login is None:
+            return 0
+        changed: dict[str, str] = {}
+        batch: list = []
+        for path, modified in stamped:
+            if path.startswith("disk:/"):
+                batch.append(("/disk/" + path[len("disk:/"):], path, modified))
+        for start in range(0, len(batch), unlim_api.INFO_BATCH):
+            chunk = batch[start:start + unlim_api.INFO_BATCH]
+            try:
+                infos = client.bulk_info([web for web, _p, _m in chunk])
+            except Exception as exc:  # noqa: BLE001 — фоновая доработка
+                log.warning("redates batch failed: %s", exc)
+                continue
+            for web, path, modified in chunk:
+                info = infos.get(web) or {}
+                meta = info.get("meta") or {}
+                when = (unlim_api._parse_unlim_dt(meta.get("etime"))
+                        or unlim_api._parse_unlim_dt(info.get("etime"))
+                        or unlim_api._parse_unlim_dt(info.get("mtime")))
+                if when is None or modified is None:
+                    continue
+                if when.astimezone().date() != modified.astimezone().date():
+                    changed[path] = when.isoformat()
+            if start + unlim_api.INFO_BATCH < len(batch):
+                self._sleep(random.uniform(*unlim_api.CHUNK_SLEEP))
+        # сигнал и запись — только для новых/изменившихся дат: повторный
+        # прогон с тем же расхождением не должен перезапускать ленту
+        cache = UnlimFeedCache(login)
+        _stamp, stored = cache.load_redates()
+        fresh = {p: iso for p, iso in changed.items() if stored.get(p) != iso}
+        if fresh:
+            cache.save_redates(fresh)
+            self.dates_changed.emit()
+        return len(fresh)
 
     def diagnostic_dump(self, raw: str | None = None) -> dict:
         client = UnlimClient(raw) if raw else self.client
