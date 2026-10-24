@@ -1,0 +1,22 @@
+#!/usr/bin/env bash
+# Тот же контроль, что pre-commit, но на границе пуша — страховка,
+# если коммит сделали с --no-verify или из другого клона без хуков.
+set -uo pipefail
+
+zero=0000000000000000000000000000000000000000
+status=0
+
+while read -r local_ref local_sha remote_ref remote_sha; do
+    [ "$local_sha" = "$zero" ] && continue   # удаление ветки — нечего сканировать
+    if [ "$remote_sha" = "$zero" ]; then
+        revs="$local_sha"                     # первый пуш в пустой репозиторий
+    else
+        revs="$remote_sha..$local_sha"
+    fi
+    if git log -p --no-color "$revs" | grep -nEq "[\"=][0-9a-f]{32}[\"',)]|y0_[A-Za-z0-9_-]{30,}"; then
+        echo "pre-push: ОТКЛОНЕНО — в запускаемых коммитах есть похожее на секрет значение" >&2
+        status=1
+    fi
+done
+
+exit $status

@@ -73,6 +73,23 @@ QT_QPA_PLATFORM=offscreen ./venv/bin/python3 -m pytest tests/ -q   # тесты
 
 Каталоги данных: `~/.config/yandex-disk-linux/`, `~/.cache/yandex-disk-linux/`.
 
+## Секреты и публикация репозитория
+
+В коде нет ни ключей, ни токенов: ClientID/Secret вводятся при первом входе
+и хранятся в `~/.config/yandex-disk-linux/settings.ini` (0600), токены —
+в GNOME Keyring или `tokens.json` (0600). Всё это вне репозитория и
+дополнительно перечислено в `.gitignore`.
+
+От случайной утечки страхуют хуки в `.githooks/` (блокируют коммит и пуш
+значений, похожих на ClientID/Secret или OAuth-токен, и файлов с секретами).
+В этом клоне они уже включены; в свежем клоне включите один раз:
+
+```bash
+git config core.hooksPath .githooks
+```
+
+Осознанный обход (если хук сработал на не-секрет): `git commit --no-verify`.
+
 ## Известные ограничения
 
 - С июня 2026 двусторонняя синхронизация через официальный демон требует

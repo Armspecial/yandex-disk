@@ -4,3 +4,13 @@ __pycache__/
 .pytest_cache/
 *.egg-info/
 .claude/
+
+# Секреты и локальные артефакты — никогда не попадают в репозиторий
+*.log
+nohup.out
+tokens.json
+settings.ini
+daemon.cfg
+passwd
+downloaded.json
+

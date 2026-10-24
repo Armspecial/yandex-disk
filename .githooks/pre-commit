@@ -1,0 +1,29 @@
+#!/usr/bin/env bash
+# Сетка от случайной утечки секретов в коммит:
+#   - 32-символьные hex-значения в кавычках/присваиваниях (формат
+#     ClientID/ClientSecret Яндекса);
+#   - OAuth-токены Яндекса (y0_AgAAAA…);
+#   - файлы, в которых секреты живут на машине (tokens.json, settings.ini…).
+# Обход при осознанном коммите:  git commit --no-verify
+set -uo pipefail
+
+status=0
+
+for f in $(git diff --cached --name-only); do
+    case "$f" in
+        tokens.json|settings.ini|daemon.cfg|passwd|downloaded.json|\
+        *.pem|*.key|*credential*)
+            echo "pre-commit: ОТКЛОНЕНО — файл с секретами: $f" >&2
+            status=1
+            ;;
+    esac
+done
+
+if git diff --cached --no-color | grep -nEq "[\"=][0-9a-f]{32}[\"',)]|y0_[A-Za-z0-9_-]{30,}"; then
+    echo "pre-commit: ОТКЛОНЕНО — в изменениях значение, похожее на секрет" >&2
+    echo "(32-hex ClientID/Secret или OAuth-токен y0_…)." >&2
+    echo "Если это точно не секрет — git commit --no-verify" >&2
+    status=1
+fi
+
+exit $status
