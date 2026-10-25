@@ -14,12 +14,14 @@ from pathlib import Path
 from PySide6.QtCore import QObject, QRunnable, Qt, QThreadPool, Signal
 from PySide6.QtGui import QImage, QPixmap
 
-from ydx.constants import PREVIEW_CONCURRENCY, THUMB_DIR
+from ydx import constants as const
+from ydx.constants import PREVIEW_CONCURRENCY
 from ydx.core.models import Resource
 
 log = logging.getLogger(__name__)
 
-DISK_LIMIT = 512 * 1024 * 1024
+DISK_LIMIT = 2 * 1024 * 1024 * 1024    # все ~19 тыс. миниатюр должны помещаться
+DISK_FORMAT = "JPG"                    # фото-превью: в 5–10 раз компактнее PNG
 
 
 def thumb_key(resource: Resource) -> str:
@@ -147,7 +149,7 @@ class ThumbService(QObject):
         path = self._disk_path(key)
         try:
             path.parent.mkdir(parents=True, exist_ok=True)
-            pm.save(str(path), "PNG")
+            pm.save(str(path), DISK_FORMAT)
         except OSError as exc:
             log.debug("thumb save failed %s: %s", key, exc)
 
@@ -157,21 +159,39 @@ class ThumbService(QObject):
     # --- дисковый кэш -----------------------------------------------------------------
 
     def _disk_path(self, key: str) -> Path:
-        return THUMB_DIR / key[:2] / f"{key}.png"
+        return const.THUMB_DIR / key[:2] / f"{key}.{DISK_FORMAT.lower()}"
 
     def _load_disk(self, key: str) -> QPixmap | None:
         path = self._disk_path(key)
         if not path.exists():
-            return None
+            return self._migrate_png(key, path)
         pm = QPixmap(str(path))
         if not pm.isNull():
             self._mem[key] = pm
             return pm
         return None
 
+    def _migrate_png(self, key: str, jpg_path: Path) -> QPixmap | None:
+        """Миниатюра из PNG-кэша прошлой версии: переконвертировать на месте,
+        не перекачивая из сети."""
+        png = jpg_path.with_suffix(".png")
+        if not png.exists():
+            return None
+        pm = QPixmap(str(png))
+        if pm.isNull():
+            return None
+        try:
+            pm.save(str(jpg_path), DISK_FORMAT)
+            png.unlink(missing_ok=True)
+        except OSError:
+            pass
+        self._mem[key] = pm
+        return pm
+
     def _evict_if_needed(self) -> None:
         try:
-            files = sorted(THUMB_DIR.rglob("*.png"), key=lambda p: p.stat().st_mtime)
+            files = sorted(const.THUMB_DIR.rglob("*.*"),
+                           key=lambda p: p.stat().st_mtime)
         except OSError:
             return
         total = sum(f.stat().st_size for f in files)

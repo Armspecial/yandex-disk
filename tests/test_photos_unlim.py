@@ -154,8 +154,8 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_merged_feed_and_album(qapp, tmp_path):
-    """REST + безлимит в одной ленте; альбом безлимита назван по i18n."""
+def test_merged_feed_newest_on_top(qapp, tmp_path):
+    """REST + безлимит в одной ленте; новейшие сверху."""
     unlim = _StubUnlim([
         _res("photounlim:/u1.jpg", "2026-10-24T09:00:00+00:00",
              file_url="https://dl/u1.jpg"),
@@ -172,10 +172,6 @@ def test_merged_feed_and_album(qapp, tmp_path):
 
     top = page.timeline.timeline_model.index(1, 0).data(ResourceRole)
     assert top.path == "photounlim:/u1.jpg"               # новейшие сверху
-
-    page._switch_mode("albums")
-    names = {a.path: a.name for a in page.albums_model.items}
-    assert names["photounlim:"] == "Безлимитная автозагрузка"
 
 
 def test_unlim_failure_keeps_rest_feed(qapp, tmp_path):

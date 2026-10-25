@@ -280,5 +280,8 @@
   "unlim.feed_error": "Unlimited auto-upload failed: {error}",
   "unlim.connect_hint": "Photos and videos from unlimited auto-upload: connect browser cookies (click here)",
   "unlim.download_summary": "Downloaded: {done}",
-  "unlim.no_link": "No direct link to play"
+  "unlim.no_link": "No direct link to play",
+  "photos.tab_all": "All",
+  "photos.count_video": "{n} videos",
+  "photos.count_all": "{n} photos & videos"
 }

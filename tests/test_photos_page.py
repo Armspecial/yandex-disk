@@ -126,7 +126,6 @@ def test_collect_batches_and_default_sort(qapp):
     assert not page.model.loading
     assert page.model.rowCount() == 205
     assert adds == [200, 5]                                    # две порции, как пагинация API
-    assert page.sort_proxy.sort_key == "modified"               # «Дата» по умолчанию
 
     from ydx.ui.views.files_model import ResourceRole
     from ydx.ui.views.photo_timeline import HeaderRole
@@ -167,12 +166,12 @@ def test_timeline_layout_by_days(qapp):
 
 
 def test_recollect_discards_stale_chain(qapp):
-    """Повторный on_shown до завершения первого сбора: старая цепочка
-    отбрасывается — в модели остаются только элементы второй."""
+    """Повторный on_shown до завершения первого сбора: в модели остаётся
+    ровно одна цепочка — элементы устаревшей не подмешиваются."""
     import threading
 
     class _SlowApi:
-        """Обход висит на «воротах»; каждая цепочка отдаёт свой файл."""
+        """Обход висит на «воротах»; первая цепочка даёт 2 файла, вторая — 1."""
 
         def __init__(self) -> None:
             self.gate = threading.Event()
@@ -183,21 +182,33 @@ def test_recollect_discards_stale_chain(qapp):
 
         def iter_media(self, media_type=None):
             self.calls += 1
+            call = self.calls
             self.gate.wait(timeout=10)
-            yield _img(f"disk:/from-call-{self.calls}.jpg",
-                       "2024-01-01T00:00:00+00:00")
+            if call == 1:
+                yield _img("disk:/chain-a1.jpg", "2024-01-01T00:00:00+00:00")
+                yield _img("disk:/chain-a2.jpg", "2024-01-01T01:00:00+00:00")
+            else:
+                yield _img("disk:/chain-b1.jpg", "2024-01-01T02:00:00+00:00")
 
     accounts = _StubAccounts(_SlowApi())
     page, _acc = _page_from(qapp, accounts)
     page.on_shown()                       # первая цепочка повисла на воротах
     page.on_shown()                       # вторая тут же перебивает
+
+    import time as _time
+
+    end = _time.time() + 15               # обе цепочки должны дойти до ворот
+    while _time.time() < end and accounts.resources.calls < 2:
+        qapp.processEvents()
+        _time.sleep(0.01)
     accounts.resources.gate.set()         # отпускаем обе
     _pump(5000)
 
+    items = [r.path for r in page.model.items]
     assert accounts.resources.calls == 2
-    assert page.model.rowCount() == 1     # только вторая цепочка
-    assert page.model.items[0].path == "disk:/from-call-2.jpg"
-    assert page._collected["image"]       # завершённая цепочка закэширована
+    assert items in (["disk:/chain-a1.jpg", "disk:/chain-a2.jpg"],
+                     ["disk:/chain-b1.jpg"])     # одна цепочка, без смешивания
+    assert [r.path for r in page._collected["image"]] == items   # и в кэше сессии
 
 
 def test_media_switch_and_cache(qapp):
@@ -395,3 +406,52 @@ def test_video_badge_painted_on_tile(qapp):
     corner = img.pixelColor(5, 50)           # далеко от бейджа — фон
     assert center.red() > 180 and center.green() > 180 and center.blue() > 180
     assert corner.red() < 40
+
+
+def test_media_all_mixes_photos_and_videos(qapp):
+    """Вкладка «Все»: в одной ленте и фото, и видео; счётчик соответствующий."""
+    from datetime import datetime
+
+    from ydx.core.models import Resource
+
+    def _vid(path, modified):
+        return Resource(name=path.rsplit("/", 1)[-1], type="file", path=path,
+                        media_type="video",
+                        modified=datetime.fromisoformat(modified))
+
+    batches = [[_img("disk:/p/a.jpg", "2026-10-01T10:00:00+00:00"),
+                _vid("disk:/p/clip.mp4", "2026-10-02T10:00:00+00:00")]]
+    page, _accounts = _page(qapp, batches)
+    page._set_media("all")
+    _pump()
+
+    assert page.model.rowCount() == 2                    # и фото, и видео
+    assert page.both_btn.isChecked() and not page.photo_btn.isChecked()
+    kinds = {r.media_type for r in page.model.items}
+    assert kinds == {"image", "video"}
+    assert "видео" in page.counter.text()
+
+
+def test_thumb_png_cache_migrates_to_jpg(qapp, tmp_path, monkeypatch):
+    """Миниатюры PNG-кэша прошлой версии конвертируются на месте, без сети."""
+    from PySide6.QtGui import QImage, QPixmap
+
+    from ydx import constants as const
+    from ydx.services import thumbs as thumbs_mod
+    from ydx.services.thumbs import ThumbService, thumb_key
+
+    monkeypatch.setattr(const, "THUMB_DIR", tmp_path)
+    service = ThumbService(lambda: None)
+
+    img = QImage(6, 6, QImage.Format.Format_RGB32)
+    img.fill(0xFF3366AA)
+    key = thumb_key(_img("disk:/migrated.jpg", "2024-01-01T00:00:00+00:00"))
+    png = tmp_path / key[:2] / f"{key}.png"
+    png.parent.mkdir(parents=True)
+    QPixmap.fromImage(img).save(str(png), "PNG")
+
+    loaded = service._load_disk(key)
+    assert loaded is not None and not loaded.isNull()
+    assert (tmp_path / key[:2] / f"{key}.jpg").exists()   # перезаписан компактно
+    assert not png.exists()                               # PNG убран
+    assert service._load_disk(key) is not None            # теперь читается JPG

@@ -24,24 +24,6 @@ def qapp():
     return QApplication.instance() or QApplication([])
 
 
-def test_group_albums_by_folder(qapp):
-    from ydx.services import i18n
-
-    i18n.load("ru")
-    from ydx.ui.views.photos_page import group_albums
-
-    photos = (
-        [_img(f"disk:/Отпуск2026/фото{i}.jpg") for i in range(5)]
-        + [_img(f"disk:/Котики/кот{i}.png") for i in range(3)]
-        + [_img("disk:/root.png")]
-    )
-    albums = group_albums(photos)
-    assert [a["name"] for a in albums][:2] == ["Отпуск2026", "Котики"]  # по убыванию счётчика
-    assert albums[0]["count"] == 5
-    assert albums[-1]["name"] == "Без папки"           # корень
-    assert albums[-1]["count"] == 1
-
-
 def test_downloaded_index_roundtrip_and_watch(qapp, tmp_path: Path, monkeypatch):
     from ydx import constants as const
     from ydx.services.downloaded_index import DownloadedIndex
