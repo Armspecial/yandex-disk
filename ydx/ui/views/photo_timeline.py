@@ -188,8 +188,10 @@ class _TileDelegate(FilesDelegate):
         ]))
 
     def _paint_header(self, painter, rect: QRect, index: QModelIndex) -> None:
+        from ydx.ui.theme import theme
+
         title = index.data(HeaderRole) or ""
-        painter.setPen(QColor("#F2F2F4" if _dark() else "#21201F"))
+        painter.setPen(QColor(theme().colors()["text"]))
         font = QFont(painter.font())
         font.setPointSizeF(11.5)
         font.setWeight(QFont.Weight.DemiBold)

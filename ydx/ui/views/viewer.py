@@ -65,7 +65,9 @@ class PhotoViewer(QDialog):
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
         self.setWindowState(Qt.WindowState.WindowFullScreen)
-        self.setStyleSheet("background-color: #101012;")
+        from ydx.ui.theme import theme as _theme
+
+        self.setStyleSheet(f"background-color: {_theme().colors()['canvas']};")
         self.setCursor(Qt.CursorShape.BlankCursor)
         self._resources = resources
         self._index = index
@@ -227,10 +229,12 @@ class PhotoViewer(QDialog):
 
     def paintEvent(self, event) -> None:  # noqa: N802 — Qt API
         painter = QPainter(self)
-        painter.fillRect(self.rect(), QColor("#101012"))
+        from ydx.ui.theme import theme
+
+        painter.fillRect(self.rect(), QColor(theme().colors()["canvas"]))
         source = self._full or self._pixmap
         if source is None:
-            painter.setPen(QColor("#8A8D94"))
+            painter.setPen(QColor(theme().colors()["text_tertiary"]))
             font = QFont()
             font.setPixelSize(18)
             painter.setFont(font)
@@ -244,7 +248,7 @@ class PhotoViewer(QDialog):
             x = (self.width() - scaled.width()) // 2
             y = (self.height() - scaled.height()) // 2
             painter.drawPixmap(x, y, scaled)
-        painter.setPen(QColor("#D6D7DB"))
+        painter.setPen(QColor(theme().colors()["text_secondary"]))
         counter_font = QFont()
         counter_font.setPixelSize(14)
         painter.setFont(counter_font)
@@ -332,7 +336,9 @@ class VideoViewer(QDialog):
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowTitle(resource.name)
-        self.setStyleSheet("background-color: #101012;")
+        from ydx.ui.theme import theme as _theme
+
+        self.setStyleSheet(f"background-color: {_theme().colors()['canvas']};")
         self._resource = resource
         self._api = resources_api
         self._unlim = unlim
@@ -352,7 +358,7 @@ class VideoViewer(QDialog):
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
         self.status_label = QLabel()
-        self.status_label.setStyleSheet("color:#D6D7DB; font-size:18px;")
+        self.status_label.setStyleSheet("color:#EDEEF0; font-size:18px;")
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         col.addWidget(self.status_label, 1)
 
@@ -436,7 +442,7 @@ class VideoViewer(QDialog):
     def _set_status(self, text: str, error: bool = False) -> None:
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
-            "color:#FF7A5C; font-size:18px;" if error else "color:#D6D7DB; font-size:18px;")
+            "color:#FF6A4D; font-size:18px;" if error else "color:#EDEEF0; font-size:18px;")
         self.status_label.show()
 
     def _set_progress(self, done: int, total: int, speed: float = 0.0) -> None:

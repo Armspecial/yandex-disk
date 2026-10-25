@@ -88,12 +88,12 @@ class FilesDelegate(QStyledItemDelegate):
                 font = QFont(p.font())
                 font.setWeight(QFont.Weight.DemiBold)
                 p.setFont(font)
-            p.setPen(QColor("#F2F2F4" if theme().current == "dark" else "#21201F"))
+            p.setPen(QColor(theme().colors()["text"]))
             p.drawText(
                 QRect(name_x, rect.top(), name_w, rect.height()),
                 Qt.AlignmentFlag.AlignVCenter, name,
             )
-        text_color = QColor("#A3A5AC")
+        text_color = QColor(theme().colors()["text_secondary"])
         p.setPen(text_color)
         date_rect = QRect(rect.right() - date_w - size_w - 16, rect.top(), date_w, rect.height())
         p.drawText(date_rect, Qt.AlignmentFlag.AlignVCenter | Qt.AlignmentFlag.AlignRight,
@@ -118,11 +118,11 @@ class FilesDelegate(QStyledItemDelegate):
         text_rect = QRect(rect.left() + 6, text_top, rect.width() - 12, rect.height() - text_top - 8)
         metrics = QFontMetrics(p.font())
         name = metrics.elidedText(r.name, Qt.TextElideMode.ElideMiddle, text_rect.width() * 2)
-        p.setPen(QColor("#F2F2F4" if theme().current == "dark" else "#21201F"))
+        p.setPen(QColor(theme().colors()["text"]))
         p.drawText(QRect(text_rect.left(), text_top, text_rect.width(), 34),
                    Qt.AlignmentFlag.AlignHCenter | Qt.TextFlag.TextWordWrap, name)
         if not r.is_dir:
-            p.setPen(QColor("#A3A5AC"))
+            p.setPen(QColor(theme().colors()["text_secondary"]))
             p.drawText(QRect(text_rect.left(), text_top + 36, text_rect.width(), 16),
                        Qt.AlignmentFlag.AlignHCenter, human_size(r.size))
 
