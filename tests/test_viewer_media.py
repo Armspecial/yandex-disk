@@ -99,14 +99,8 @@ def test_video_downloads_then_opens_system_player(qapp, _dirs, monkeypatch):
     i18n.load("ru")
     media = _dirs / "open" / "clip.mp4"
     opened = []
-
-    class _FakeDesktop:
-        @staticmethod
-        def openUrl(url):
-            opened.append(url.toLocalFile())
-            return True
-
-    monkeypatch.setattr(viewer_mod, "QDesktopServices", _FakeDesktop)
+    monkeypatch.setattr(viewer_mod, "open_in_system_player",
+                        lambda path: opened.append(path) or True)
 
     def fake_download(api, resource, target, progress=None, abort=None):
         if progress:
@@ -143,14 +137,8 @@ def test_unlim_video_downloads_then_opens_system_player(qapp, _dirs, monkeypatch
     media.parent.mkdir(parents=True, exist_ok=True)
     media.write_bytes(b"")
     opened = []
-
-    class _FakeDesktop:
-        @staticmethod
-        def openUrl(url):
-            opened.append(url.toLocalFile())
-            return True
-
-    monkeypatch.setattr(viewer_mod, "QDesktopServices", _FakeDesktop)
+    monkeypatch.setattr(viewer_mod, "open_in_system_player",
+                        lambda path: opened.append(path) or True)
 
     def fake_unlim_download(unlim, resources, target_dir, progress=None,
                             abort=None):

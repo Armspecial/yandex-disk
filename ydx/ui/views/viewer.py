@@ -287,6 +287,32 @@ class _Speedometer:
         return self.speed
 
 
+def open_in_system_player(path: str) -> bool:
+    """Открыть видео внешним плеером.
+
+    Если установлен VLC — запускаем его с выключенным аппаратным
+    декодированием: на Intel-графике (Iris Xe) VA-API регулярно даёт
+    артефакты и рывки при программно-целых файлах. Нет VLC — системный
+    обработчик по умолчанию.
+    """
+    import shutil
+    import subprocess
+
+    vlc = shutil.which("vlc")
+    if vlc:
+        try:
+            subprocess.Popen(
+                [vlc, "--avcodec-hw=none", "--play-and-exit", path],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+                start_new_session=True)
+            return True
+        except OSError:
+            pass
+    from PySide6.QtCore import QUrl
+
+    return QDesktopServices.openUrl(QUrl.fromLocalFile(path))
+
+
 class VideoViewer(QDialog):
     """Видео: скачивание в кэш с прогрессом (скорость/остаток) → системный
     плеер (VLC и т.п.).
@@ -396,12 +422,9 @@ class VideoViewer(QDialog):
 
     def _open_external(self, path) -> None:
         """Файл скачан — открыть системным плеером и закрыться."""
-        from PySide6.QtCore import QUrl
-
         self._downloaded = str(path)
         log.info("video ready, opening in system player: %s", path)
-        opened = QDesktopServices.openUrl(QUrl.fromLocalFile(str(path)))
-        if opened:
+        if open_in_system_player(str(path)):
             self.close()
             return
         from ydx.services import i18n
@@ -433,13 +456,15 @@ class VideoViewer(QDialog):
 
         if self._sys_btn is not None or self._downloaded is None:
             return
+        from PySide6.QtWidgets import QPushButton
+
         from ydx.services import i18n
 
         self._sys_btn = QPushButton(i18n.tr("viewer.open_external"))
         self._sys_btn.setMinimumHeight(36)
         path = self._downloaded
         self._sys_btn.clicked.connect(
-            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
+            lambda: open_in_system_player(path))
         self.layout().addWidget(self._sys_btn)
 
     # --- управление ------------------------------------------------------------
