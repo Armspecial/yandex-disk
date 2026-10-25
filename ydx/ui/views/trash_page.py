@@ -86,6 +86,7 @@ class TrashPage(QWidget):
         self.view.context_menu_requested.connect(self._context_menu)
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
+        self.model.layoutChanged.connect(self._update_states)   # пустой финал
 
         i18n.register(self.retranslate)
         self.retranslate()
@@ -93,6 +94,14 @@ class TrashPage(QWidget):
     # --- загрузка -------------------------------------------------------------
 
     def on_shown(self) -> None:
+        """Клик по «Корзине» в сайдбаре: всегда корень и свежая загрузка."""
+        self._path = "/"
+        self._history.clear()
+        self.back_btn.setEnabled(False)
+        self.title.setText(i18n.tr("trash.title"))
+        self._reload()
+
+    def _reload(self) -> None:
         resources = self._accounts.resources
         if resources is None:
             return
@@ -106,7 +115,7 @@ class TrashPage(QWidget):
             self._history.append(self._path)
             self.back_btn.setEnabled(True)
             self._path = resource.path.removeprefix("trash:")
-            self.on_shown()
+            self._reload()
             self.title.setText(
                 f"{i18n.tr('trash.title')} — {resource.name}"
             )
@@ -116,7 +125,7 @@ class TrashPage(QWidget):
             self._path = self._history.pop()
             self.back_btn.setEnabled(bool(self._history))
             self.title.setText(i18n.tr("trash.title"))
-            self.on_shown()
+            self._reload()
 
     def _update_states(self) -> None:
         if self.model.loading and not self.model.rowCount():

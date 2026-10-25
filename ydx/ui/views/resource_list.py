@@ -70,8 +70,9 @@ class ResourceListModel(QAbstractListModel):
         self._items = []
         self._fetcher = fetcher
         self._next_offset = 0
+        self._loading = True      # сброс = грузим, а не «список пуст»
         self.endResetModel()
-        self.fetchMore()
+        self._fetch_page()          # мимо canFetchMore: уже грузим
 
     def reset(self) -> None:
         if self._fetcher is not None:
@@ -79,9 +80,10 @@ class ResourceListModel(QAbstractListModel):
             self.beginResetModel()
             self._items = []
             self._next_offset = 0
+            self._loading = True
             self.endResetModel()
             self._fetcher = fetcher
-            self.fetchMore()
+            self._fetch_page()
 
     # --- сбор из нескольких источников (без fetcher) ------------------------------
 
@@ -113,6 +115,10 @@ class ResourceListModel(QAbstractListModel):
     def fetchMore(self, parent: QModelIndex | None = None) -> None:  # noqa: N802
         if not self.canFetchMore(parent) or self._fetcher is None:
             return
+        self._fetch_page()
+
+    def _fetch_page(self) -> None:
+        """Партия без гейта canFetchMore — старт по set_fetcher сразу."""
         self._loading = True
         offset = self._next_offset or 0
         fetcher = self._fetcher
@@ -130,6 +136,9 @@ class ResourceListModel(QAbstractListModel):
             elif next_offset is not None:
                 self._next_offset = None
             self._loading = False
+            if not items:
+                # пустой финал без rowsInserted — дать странице сменить состояние
+                self.layoutChanged.emit()
 
         from ydx.services.workers import run_in_thread
 
