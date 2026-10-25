@@ -194,3 +194,35 @@ def test_active_changed_invalidates_cache(qapp):
     page.on_shown()
     _pump()
     assert accounts.resources.generators == 2                    # сбор пошёл заново
+
+
+def test_timeline_rebuild_keeps_all_photos_visible(qapp):
+    """Пересборка ленты (порция новее сдвигает строки) не должна прятать фото:
+    спаны заголовков прошлой раскладки накрывали ячейки, и день «терял» снимки."""
+    from ydx.services.thumbs import ThumbService
+    from ydx.ui.views.files_model import ResourceRole
+    from ydx.ui.views.photo_timeline import PhotoTimelineView
+
+    day28 = [_img(f"disk:/u/28-{i}.jpg", f"2026-09-28T1{i % 10}:00:00+00:00") for i in range(16)]
+    day27 = [_img(f"disk:/u/27-{i}.jpg", f"2026-09-27T1{i % 10}:00:00+00:00") for i in range(7)]
+    day26 = [_img(f"disk:/u/26-{i}.jpg", f"2026-09-26T1{i % 10}:00:00+00:00") for i in range(6)]
+
+    view = PhotoTimelineView(ThumbService(lambda: None))
+    view.resize(900, 400)                       # 5 колонок
+    view.show()
+    view.set_photos(day28 + day27 + day26)      # первая раскладка: спаны заголовков
+    qapp.processEvents()
+    view.set_photos([_img("disk:/u/new.jpg", "2026-10-25T09:00:00+00:00")]
+                    + day28 + day27 + day26)    # порция новнее — строки сдвинулись
+    qapp.processEvents()
+
+    model = view.timeline_model
+    hidden = [
+        (row, col)
+        for row in range(model.rowCount())
+        for col in range(model._cols)
+        if model.index(row, col).data(ResourceRole) is not None
+        and view.isIndexHidden(model.index(row, col))
+    ]
+    assert not hidden                           # каждая ячейка с фото видима
+    assert sum(len(r["photos"]) for r in model._rows if "photos" in r) == 30

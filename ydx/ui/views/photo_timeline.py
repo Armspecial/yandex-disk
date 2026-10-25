@@ -228,6 +228,10 @@ class PhotoTimelineView(QTableView):
     def _apply_layout(self) -> None:
         """Span-строки заголовков + высоты строк (после каждой пересборки)."""
         model = self.timeline_model
+        # спаны прошлой раскладки живут во вьюхе и не снимаются сами: после
+        # сдвига строк (порция новее / ресайз) они накрывают ячейки фото,
+        # и день «теряет» часть снимков — сбрасываем перед новой раскладкой
+        self.clearSpans()
         for row in range(model.rowCount()):
             if model.index(row, 0).data(ResourceRole) is None:
                 self.setSpan(row, 0, 1, model.columnCount())
