@@ -290,9 +290,10 @@ class _Speedometer:
 def open_in_system_player(path: str) -> bool:
     """Открыть видео внешним плеером.
 
-    Если установлен VLC — запускаем его с выключенным аппаратным
-    декодированием: на Intel-графике (Iris Xe) VA-API регулярно даёт
-    артефакты и рывки при программно-целых файлах. Нет VLC — системный
+    Аппаратное декодирование не выключаем: съёмка телефона — это
+    4K 60к/с HEVC, программный декод на грани и рвёт картинку; VA-API
+    (intel-media-va-driver-non-free) справляется легко, а при его
+    отсутствии VLC сам откатывается на программный. Нет VLC — системный
     обработчик по умолчанию.
     """
     import shutil
@@ -302,7 +303,7 @@ def open_in_system_player(path: str) -> bool:
     if vlc:
         try:
             subprocess.Popen(
-                [vlc, "--avcodec-hw=none", "--play-and-exit", path],
+                [vlc, "--play-and-exit", path],
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
                 start_new_session=True)
             return True
