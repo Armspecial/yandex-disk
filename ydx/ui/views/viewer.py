@@ -11,12 +11,16 @@ viewer_kind() решает, чем открывать ресурс; всё ос�
 
 from __future__ import annotations
 
+import logging
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import QDialog
 
 from ydx.core.models import Resource
 from ydx.services.thumbs import ThumbService
+
+log = logging.getLogger(__name__)
 
 
 def viewer_kind(resource: Resource) -> str:
@@ -307,6 +311,8 @@ class VideoViewer(QDialog):
         self._api = resources_api
         self._unlim = unlim
         self.player = None                        # лениво: см. _ensure_player
+        self._played_path: str | None = None
+        self._sys_btn = None
         import threading
 
         self._abort = threading.Event()           # закрыли окно — стоп загрузке
@@ -366,6 +372,8 @@ class VideoViewer(QDialog):
         self.player.setAudioOutput(self.audio)
         self.player.errorOccurred.connect(
             lambda _e, msg, _s="": self._on_error(msg))
+        self.player.mediaStatusChanged.connect(
+            lambda status: log.info("video media status: %s", status))
 
         bar = QWidget(self)
         bar.setStyleSheet("background-color: rgba(16,16,18,0.85);")
@@ -443,17 +451,34 @@ class VideoViewer(QDialog):
             return
         from PySide6.QtCore import QUrl
 
+        log.info("video play: %s", path)
         self.status_label.hide()
+        self._played_path = path
         self.player.setSource(QUrl.fromLocalFile(str(path)))
         self.player.play()
+        from PySide6.QtCore import QTimer
+
+        QTimer.singleShot(3000, self._kick_if_stuck)
+
+    def _kick_if_stuck(self) -> None:
+        """Через 3 с после старта: если не играет и без ошибки — толкаем ещё
+        раз и пишем состояние в лог (диагностика «не открывается»)."""
+        if self.player is None or not self.isVisible():
+            return
+        state = self.player.playbackState()
+        if state != self.player.PlaybackState.PlayingState:
+            log.warning("video stuck after start: state=%s pos=%dms status=%s",
+                        state, self.player.position(),
+                        self.player.mediaStatus())
+            self.player.play()
 
     def _set_status(self, text: str, error: bool = False) -> None:
         self.status_label.setText(text)
         self.status_label.setStyleSheet(
             "color:#FF7A5C; font-size:18px;" if error else "color:#D6D7DB; font-size:18px;")
-        if self.player is None:
-            self.status_label.show()
-        elif error:
+        if self.player is None or error:
+            self.status_label.show()          # ошибка — крупно, поверх видео
+        if error and self.player is not None:
             self.error_label.setText(text)
             self.error_label.show()
 
@@ -487,8 +512,35 @@ class VideoViewer(QDialog):
     def _on_error(self, message: str) -> None:
         from ydx.services import i18n
 
+        log.warning("video error: %s", message)
         self._set_status(i18n.tr("viewer.video_error") + f" ({message[:80]})",
                          error=True)
+        self._offer_system_player()
+
+    def _offer_system_player(self) -> None:
+        """Встроенный не справился, но файл скачан — откроем системным плеером."""
+        from PySide6.QtCore import QUrl
+        from PySide6.QtGui import QDesktopServices
+        from PySide6.QtWidgets import QPushButton
+
+        if getattr(self, "_sys_btn", None) is not None:
+            return
+        path = getattr(self, "_played_path", None)
+        if path is None:
+            from ydx.services import openers
+
+            cached = openers.cache_path(self._resource)
+            if cached.exists():
+                path = str(cached)
+        if path is None:
+            return
+        from ydx.services import i18n
+
+        self._sys_btn = QPushButton(i18n.tr("viewer.open_external"))
+        self._sys_btn.setMinimumHeight(36)
+        self._sys_btn.clicked.connect(
+            lambda: QDesktopServices.openUrl(QUrl.fromLocalFile(path)))
+        self.layout().addWidget(self._sys_btn)
 
     def _fatal_fallback(self) -> None:
         """Мультимедиа недоступна — открываем системным плеером и закрываемся."""
