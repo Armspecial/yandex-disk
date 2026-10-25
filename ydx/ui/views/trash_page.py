@@ -28,7 +28,7 @@ from ydx.ui.dialogs.prompts import PropertiesDialog
 from ydx.ui.errors_ui import confirm, show_api_error
 from ydx.ui.widgets import icon
 from ydx.ui.views.files_view import FilesView
-from ydx.ui.views.resource_list import ResourceListModel
+from ydx.ui.views.resource_list import ResourceListModel, ResourceSortProxy
 
 
 class TrashPage(QWidget):
@@ -66,7 +66,12 @@ class TrashPage(QWidget):
 
         self.stack = QStackedWidget()
         self.model = ResourceListModel(self)
-        self.view = FilesView(self.model, thumbs)
+        # Корзина — по дате удаления, свежее сверху: API отдаёт вперемешку,
+        # и только что удалённое пряталось в середине длинного списка
+        self.sort_proxy = ResourceSortProxy(self)
+        self.sort_proxy.setSourceModel(self.model)
+        self.sort_proxy.set_sort_key(ResourceSortProxy.MODIFIED)
+        self.view = FilesView(self.sort_proxy, thumbs)
         self.view.set_mode("list")
         self.stack.addWidget(self.view)
         self.loading_label = QLabel()
