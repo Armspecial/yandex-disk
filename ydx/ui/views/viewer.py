@@ -72,6 +72,12 @@ class PhotoViewer(QDialog):
         self._full: QPixmap | None = None          # оригинал (когда скачан)
         self._gen = 0                              # поколение загрузки (навигация)
         self._progress: tuple[int, int] | None = None
+        import threading
+
+        self._abort = threading.Event()            # закрыли окно — стоп загрузке
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.instance().aboutToQuit.connect(self._abort.set)
         self._progress_updated.connect(self._set_progress)
         thumbs.ready.connect(self._on_thumb_ready)
         self._load()
@@ -118,7 +124,8 @@ class PhotoViewer(QDialog):
         elif resource.path.startswith("disk:/") and self._api is not None:
             job = lambda: openers._download(   # noqa: E731 — замыкание для потока
                 self._api, resource, target,
-                lambda done, total: self._progress_updated.emit(gen, done, total))
+                lambda done, total: self._progress_updated.emit(gen, done, total),
+                abort=self._abort)
         else:
             return
         run_in_thread(job,
@@ -138,7 +145,8 @@ class PhotoViewer(QDialog):
                 return None
             return openers._stream_to_file(
                 resp, target,
-                lambda done, total: self._progress_updated.emit(gen, done, total))
+                lambda done, total: self._progress_updated.emit(gen, done, total),
+                abort=self._abort)
 
         return job
 
@@ -206,6 +214,10 @@ class PhotoViewer(QDialog):
 
     def wheelEvent(self, event) -> None:  # noqa: N802 — Qt API
         self._step(1 if event.angleDelta().y() < 0 else -1)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt API
+        self._abort.set()             # догрузка оригинала не будет держать выход
+        super().closeEvent(event)
 
     # --- отрисовка ------------------------------------------------------------------
 
@@ -295,6 +307,12 @@ class VideoViewer(QDialog):
         self._api = resources_api
         self._unlim = unlim
         self.player = None                        # лениво: см. _ensure_player
+        import threading
+
+        self._abort = threading.Event()           # закрыли окно — стоп загрузке
+        from PySide6.QtWidgets import QApplication
+
+        QApplication.instance().aboutToQuit.connect(self._abort.set)
         self._progress_updated.connect(self._set_progress)
 
         from PySide6.QtWidgets import QLabel, QVBoxLayout
@@ -388,13 +406,15 @@ class VideoViewer(QDialog):
             return openers.unlim_download(
                 self._unlim, [self._resource], OPEN_CACHE_DIR,
                 progress=lambda _path, done, total: self._progress_updated.emit(
-                    done, total, speedometer.update(done)))
+                    done, total, speedometer.update(done)),
+                abort=self._abort)
 
         def done(result: dict) -> None:
             if result["paths"]:
                 self._play_file(result["paths"][0])
             else:
-                self._on_error(i18n.tr("unlim.no_link"))
+                error = (result.get("errors") or {}).get(self._resource.path)
+                self._on_error(error or i18n.tr("unlim.no_link"))
 
         run_in_thread(job, done, lambda exc: self._on_error(str(exc)))
 
@@ -409,7 +429,8 @@ class VideoViewer(QDialog):
             return openers._download(
                 self._api, self._resource, openers.cache_path(self._resource),
                 lambda done, total: self._progress_updated.emit(
-                    done, total, speedometer.update(done)))
+                    done, total, speedometer.update(done)),
+                abort=self._abort)
 
         run_in_thread(
             job,
@@ -510,3 +531,7 @@ class VideoViewer(QDialog):
         elif event.button() == Qt.MouseButton.RightButton:
             self.close()
         super().mousePressEvent(event)
+
+    def closeEvent(self, event) -> None:  # noqa: N802 — Qt API
+        self._abort.set()             # зависшая загрузка не будет держать выход
+        super().closeEvent(event)

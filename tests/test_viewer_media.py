@@ -53,17 +53,20 @@ def test_stream_to_file_reports_progress(tmp_path):
     from ydx.services import openers
 
     class _Resp:
-        headers = {"Content-Length": "5"}
+        headers = {"Content-Length": "4"}
 
         def iter_content(self, chunk_size):
             yield b"ab"
             yield b"cd"
 
+        def close(self):
+            pass
+
     seen: list = []
     out = openers._stream_to_file(
         _Resp(), tmp_path / "f.bin", lambda done, total: seen.append((done, total)))
     assert out.read_bytes() == b"abcd"
-    assert seen == [(2, 5), (4, 5)]                  # скачано/всего на каждый чанк
+    assert seen == [(2, 4), (4, 4)]                  # скачано/всего на каждый чанк
     assert not (tmp_path / "f.bin.part").exists()    # временный убран
 
 
@@ -96,7 +99,7 @@ def test_video_downloads_with_progress_then_plays(qapp, monkeypatch):
 
     progress_seen: list = []
 
-    def fake_download(api, resource, target, progress=None):
+    def fake_download(api, resource, target, progress=None, abort=None):
         if progress:
             progress(4, 10)
             progress(10, 10)
@@ -126,7 +129,7 @@ def test_unlim_video_downloads_then_plays_normal_window(qapp, _dirs, monkeypatch
     media.parent.mkdir(parents=True, exist_ok=True)
     media.write_bytes(b"")
 
-    def fake_unlim_download(unlim, resources, target_dir, progress=None):
+    def fake_unlim_download(unlim, resources, target_dir, progress=None, abort=None):
         if progress:
             progress(resources[0].path, 4, 10)
             progress(resources[0].path, 10, 10)
@@ -159,7 +162,7 @@ def test_video_download_progress_shows_speed_and_left(qapp, _dirs, monkeypatch):
 
     real_sleep = _time.time
 
-    def fake_download(api, resource, target, progress=None):
+    def fake_download(api, resource, target, progress=None, abort=None):
         if progress:
             # имитируем секунду загрузки, чтобы спидометр что-то посчитал
             progress(2 * 1024 * 1024, 10 * 1024 * 1024)
@@ -217,3 +220,133 @@ def test_photo_viewer_loads_original_from_unlim(qapp):
     assert viewer._full is not None and not viewer._full.isNull()
     assert openers.cache_path(resource).exists()     # оригинал остался в кэше
     viewer.close()
+
+
+# --- залипание и отмена ---------------------------------------------------------------
+
+
+def test_stream_aborts_when_stalled(tmp_path):
+    """Узел «дозирует» байты: без движения дольше stall_timeout загрузка
+    обрывается, файл не появляется."""
+    import time
+
+    import pytest
+
+    from ydx.services import openers
+
+    class _SlowResp:
+        headers = {"Content-Length": "10"}
+
+        def iter_content(self, chunk_size):
+            yield b"ab"
+            time.sleep(1.2)                       # дольше stall_timeout=0.5
+            yield b"cd"
+
+        def close(self):
+            pass
+
+    with pytest.raises(Exception):
+        openers._stream_to_file(_SlowResp(), tmp_path / "s.bin",
+                                stall_timeout=0.5)
+    assert not (tmp_path / "s.bin").exists()
+    assert not (tmp_path / "s.bin.part").exists()
+
+
+def test_stream_aborts_on_cancel(tmp_path):
+    import threading
+
+    import pytest
+
+    from ydx.services import openers
+
+    abort = threading.Event()
+    abort.set()
+
+    class _Resp:
+        headers = {"Content-Length": "4"}
+
+        def iter_content(self, chunk_size):
+            yield b"ab"
+            yield b"cd"
+
+        def close(self):
+            pass
+
+    with pytest.raises(openers.DownloadCancelled):
+        openers._stream_to_file(_Resp(), tmp_path / "c.bin", abort=abort)
+    assert not (tmp_path / "c.bin.part").exists()
+
+
+def test_unlim_download_retries_with_fresh_link(tmp_path):
+    """Первая ссылка умерла на середине — вторая попытка со свежей ссылкой
+    доигрывает файл."""
+    from ydx.core.models import Resource
+    from ydx.services import openers
+
+    class _Resp:
+        status_code = 200
+        headers = {"Content-Length": "4"}
+
+        def __init__(self, data):
+            self._data = data
+
+        def iter_content(self, chunk_size):
+            yield self._data
+
+        def close(self):
+            pass
+
+    class _Unlim:
+        def __init__(self):
+            self.fetches = 0
+
+        def download_links(self, resources):
+            return {resources[0].path: "https://x/dead"}
+
+        def item_url(self, path):
+            return "https://x/fresh"
+
+        def fetch(self, url, stream=False):
+            self.fetches += 1
+            if "dead" in url:
+                raise ConnectionError("node dropped")
+            return _Resp(b"data")
+
+    res = Resource(name="v.mp4", type="file", path="photounlim:/v.mp4",
+                   media_type="video", size=4)
+    out = openers.unlim_download(_Unlim(), [res], tmp_path)
+    assert out["done"] == 1 and out["paths"] == [str(tmp_path / "v.mp4")]
+    assert (tmp_path / "v.mp4").read_bytes() == b"data"
+
+
+def test_video_close_cancels_download(qapp, _dirs, monkeypatch):
+    """Закрытие окна видео сразу отменяет идущую загрузку."""
+    import threading
+
+    from ydx.services import i18n, openers
+    from ydx.ui.views.viewer import VideoViewer
+
+    i18n.load("ru")
+    captured = {}
+
+    def fake_unlim_download(unlim, resources, target_dir, progress=None,
+                            abort=None):
+        captured["abort"] = abort
+        abort.wait(timeout=5)                     # «грузим», пока не отменят
+        raise openers.DownloadCancelled("cancelled")
+
+    monkeypatch.setattr(openers, "unlim_download", fake_unlim_download)
+    viewer = VideoViewer(_res("photounlim:/v.mp4", "video"), None, None,
+                         unlim=object())
+    viewer.show()
+    qapp.processEvents()
+
+    deadline = __import__("time").time() + 3
+    while __import__("time").time() < deadline and "abort" not in captured:
+        qapp.processEvents()
+        __import__("time").sleep(0.02)
+    assert "abort" in captured and not captured["abort"].is_set()
+
+    viewer.close()
+    qapp.processEvents()
+    assert captured["abort"].is_set()             # закрытие отменило загрузку
