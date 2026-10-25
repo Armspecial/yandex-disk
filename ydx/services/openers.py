@@ -9,7 +9,7 @@ from PySide6.QtCore import QUrl
 from PySide6.QtGui import QDesktopServices
 from PySide6.QtWidgets import QWidget
 
-from ydx.constants import OPEN_CACHE_DIR, OPEN_SIZE_LIMIT
+from ydx.constants import OPEN_SIZE_LIMIT
 from ydx.core.api_resources import ResourcesApi
 from ydx.core.models import Resource
 from ydx.services import i18n
@@ -24,12 +24,16 @@ def _safe_name(name: str) -> str:
 
 
 def cache_path(resource: Resource) -> Path:
-    return OPEN_CACHE_DIR / f"{thumb_key(resource)}-{_safe_name(resource.name)}"
+    # через модуль (не from-import): каталог должен поддаваться подмене в тестах
+    from ydx import constants as const
+
+    return const.OPEN_CACHE_DIR / f"{thumb_key(resource)}-{_safe_name(resource.name)}"
 
 
 def _stream_to_file(resp, target: Path, progress=None) -> Path:
     """Ответ со stream=True → файл; progress(байт_скачано, всего_из_Content-Length)."""
     total = int(resp.headers.get("Content-Length") or 0)
+    target.parent.mkdir(parents=True, exist_ok=True)
     tmp = target.with_suffix(target.suffix + ".part")
     done = 0
     with open(tmp, "wb") as fh:
@@ -89,6 +93,7 @@ def unlim_download(unlim, resources: list[Resource], target_dir: Path,
     """
     done = 0
     skipped: list[str] = []
+    saved: list[str] = []
     target_dir.mkdir(parents=True, exist_ok=True)
     links = unlim.download_links(resources)
     for resource in resources:
@@ -105,6 +110,8 @@ def unlim_download(unlim, resources: list[Resource], target_dir: Path,
             _stream_to_file(resp, target, lambda d, t, _r=resource:
                             progress(_r.path, d, t) if progress else None)
             done += 1
+            saved.append(str(target))
         except Exception:                                  # noqa: BLE001 — пачка важнее
             skipped.append(resource.name)
-    return {"done": done, "skipped": len(skipped), "names": skipped}
+    return {"done": done, "skipped": len(skipped), "names": skipped,
+            "paths": saved}

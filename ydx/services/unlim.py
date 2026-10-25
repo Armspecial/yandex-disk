@@ -316,6 +316,18 @@ class UnlimService(QObject):
         return {"photounlim:/" + web.rsplit("/", 1)[-1]: url
                 for web, url in by_web.items()}
 
+    def item_url(self, path: str) -> str | None:
+        """Прямая ссылка на один элемент безлимита (в т.ч. видео)."""
+        client = self.client
+        if client is None or not path.startswith("photounlim:/"):
+            return None
+        web = "/photounlim/" + path[len("photounlim:/"):]
+        try:
+            return client.item_url(web)
+        except Exception as exc:  # noqa: BLE001 — стрим не критичен, есть фолбэк
+            log.debug("item_url failed for %s: %s", path, exc)
+            return None
+
     def adopt_browser_cookies(self) -> tuple[str, str, bool] | None:
         """Найти куки в локальных браузерах и принять (auto=True).
 

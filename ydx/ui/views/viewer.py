@@ -132,13 +132,16 @@ class PhotoViewer(QDialog):
         return job
 
     def _show_full(self, path, gen: int) -> None:
-        if gen != self._gen or not self.isVisible():
+        if gen != self._gen:
             return
         pm = QPixmap(str(path))
         if not pm.isNull():
             self._full = pm
             self._progress = None
-            self.update()
+            try:
+                self.update()
+            except RuntimeError:
+                pass                 # окно уже закрылось — ничего не рисуем
 
     def _set_progress(self, gen: int, done: int, total: int) -> None:
         if gen != self._gen:
@@ -270,12 +273,15 @@ class VideoViewer(QDialog):
         col.addWidget(self.status_label, 1)
 
         if resource.path.startswith("photounlim:"):
-            # безлимит: стрим по прямой ссылке, фолбэк — скачать кукисессией
-            from ydx.services import i18n
-
+            # безлимит: играем по прямой ссылке (свежая, mpfs/url — работает
+            # и для видео), фолбэк — скачать кукисессией и играть из кэша
             if resource.file_url:
                 self._play_url(resource.file_url)
+            elif self._unlim is not None:
+                self._start_unlim_stream()
             else:
+                from ydx.services import i18n
+
                 self._set_status(i18n.tr("unlim.no_link"), error=True)
         else:
             self._start_download()
@@ -340,6 +346,24 @@ class VideoViewer(QDialog):
         self.player.setSource(QUrl(url))
         self.player.play()
 
+    def _start_unlim_stream(self) -> None:
+        """Свежая прямая ссылка на видео безлимита → стрим без скачивания."""
+        from ydx.services import i18n
+        from ydx.services.workers import run_in_thread
+
+        self._set_status(i18n.tr("viewer.loading_video"))
+
+        def job():
+            return self._unlim.item_url(self._resource.path)
+
+        def done(url) -> None:
+            if url:
+                self._play_url(url)
+            else:
+                self._on_error(i18n.tr("unlim.no_link"))
+
+        run_in_thread(job, done, lambda exc: self._on_error(str(exc)))
+
     def _start_unlim_download(self) -> None:
         """Стрим не пошёл — скачать безлимитное видео в кэш и проиграть."""
         from ydx.constants import OPEN_CACHE_DIR
@@ -355,8 +379,8 @@ class VideoViewer(QDialog):
                     self._progress_updated.emit(done, total))
 
         def done(result: dict) -> None:
-            if result["done"]:
-                self._play_file(openers.cache_path(self._resource))
+            if result["paths"]:
+                self._play_file(result["paths"][0])
             else:
                 self._on_error(i18n.tr("unlim.no_link"))
 

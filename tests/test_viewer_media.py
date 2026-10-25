@@ -114,6 +114,27 @@ def test_video_downloads_with_progress_then_plays(qapp, monkeypatch):
 # --- фото ----------------------------------------------------------------------------
 
 
+def test_unlim_video_streams_by_item_url(qapp, monkeypatch):
+    """Видео безлимита без ORIGINAL: свежая ссылка mpfs/url → стрим-плеер."""
+    from ydx.services import i18n
+    from ydx.ui.views.viewer import VideoViewer
+
+    i18n.load("ru")
+
+    class _Unlim:
+        def item_url(self, path):
+            return "https://downloader.disk.yandex.ru/disk/vid.mp4"
+
+    viewer = VideoViewer(_res("photounlim:/v.mp4", "video"), None, None,
+                         unlim=_Unlim())
+    viewer.show()
+    _pump()
+
+    assert viewer.player is not None                 # стрим пошёл в плеер
+    assert viewer._stream_url.endswith("vid.mp4")
+    viewer.close()
+
+
 def test_photo_viewer_loads_original_from_unlim(qapp):
     """Полноэкранное фото: оригинал качается с прогрессом и заменяет миниатюру."""
     from PySide6.QtCore import QBuffer

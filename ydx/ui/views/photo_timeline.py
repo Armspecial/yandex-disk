@@ -9,8 +9,17 @@ from __future__ import annotations
 
 from datetime import datetime
 
-from PySide6.QtCore import QAbstractTableModel, QLocale, QModelIndex, QRect, QSize, Qt, Signal
-from PySide6.QtGui import QColor, QFont, QPainter
+from PySide6.QtCore import (
+    QAbstractTableModel,
+    QLocale,
+    QModelIndex,
+    QPointF,
+    QRect,
+    QSize,
+    Qt,
+    Signal,
+)
+from PySide6.QtGui import QColor, QFont, QPainter, QPolygonF
 from PySide6.QtWidgets import QHeaderView, QStyle, QTableView
 
 from ydx.core.models import Resource
@@ -158,8 +167,25 @@ class _TileDelegate(FilesDelegate):
             )
             painter.drawPixmap(icon_rect, pm)
             self._sync_badge(painter, icon_rect, resource)
+            if resource.media_type == "video":
+                self._paint_video_badge(painter, rect)
         finally:
             painter.restore()
+
+    @staticmethod
+    def _paint_video_badge(painter: QPainter, rect: QRect) -> None:
+        """Бейдж «▶» в правом верхнем углу плитки: видео отличается от фото."""
+        w, h = 34, 24
+        x = rect.right() - w - 8
+        y = rect.top() + 8
+        painter.setPen(Qt.PenStyle.NoPen)
+        painter.setBrush(QColor(0, 0, 0, 160))
+        painter.drawRoundedRect(x, y, w, h, 6, 6)
+        painter.setBrush(QColor(255, 255, 255, 230))
+        painter.drawPolygon(QPolygonF([
+            QPointF(x + 13, y + 6), QPointF(x + 13, y + h - 6),
+            QPointF(x + 24, y + h / 2),
+        ]))
 
     def _paint_header(self, painter, rect: QRect, index: QModelIndex) -> None:
         title = index.data(HeaderRole) or ""

@@ -376,3 +376,22 @@ def test_timeline_rebuild_keeps_all_photos_visible(qapp):
     ]
     assert not hidden                           # каждая ячейка с фото видима
     assert sum(len(r["photos"]) for r in model._rows if "photos" in r) == 30
+
+
+def test_video_badge_painted_on_tile(qapp):
+    """Бейдж ▶ на плитке видео: белая стрелка в правом верхнем углу."""
+    from PySide6.QtCore import QRect
+    from PySide6.QtGui import QImage, QPainter
+
+    from ydx.ui.views.photo_timeline import _TileDelegate
+
+    img = QImage(60, 60, QImage.Format.Format_ARGB32)
+    img.fill(0xFF101010)
+    painter = QPainter(img)
+    _TileDelegate._paint_video_badge(painter, QRect(0, 0, 60, 60))
+    painter.end()
+
+    center = img.pixelColor(35, 20)          # центр треугольника
+    corner = img.pixelColor(5, 50)           # далеко от бейджа — фон
+    assert center.red() > 180 and center.green() > 180 and center.blue() > 180
+    assert corner.red() < 40

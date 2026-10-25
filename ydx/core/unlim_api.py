@@ -335,13 +335,31 @@ class UnlimClient:
             if start + CLUSTER_CHUNK < len(clusters):
                 self._sleeper(random.uniform(*CHUNK_SLEEP))
 
+    def item_url(self, path: str, inline: bool = True) -> str | None:
+        """Прямая ссылка на элемент (mpfs/url): работает и для видео, у
+        которых в sizes нет ORIGINAL. inline=True —Disposition для стрима."""
+        data = self._call("mpfs/url", {"path": path, "inline": inline})
+        url = data.get("file") if isinstance(data, dict) else None
+        if isinstance(url, str) and url.startswith("//"):
+            return "https:" + url
+        return url or None
+
     def download_links(self, paths: list[str]) -> dict[str, str]:
         """Свежие ссылки на оригиналы (ссылки короткоживущие — брать перед
-        скачиванием). Формат: {путь "/photounlim/…": url}; без ORIGINAL
-        (видео) в ответ не попадает."""
+        скачиванием). Формат: {путь "/photounlim/…": url}. Фото получают
+        ORIGINAL из bulk-инфо; видео (без ORIGINAL) — поштучно mpfs/url."""
         links: dict[str, str] = {}
         for path, info in self.bulk_info(paths).items():
             url = _sizes_by_name(info.get("meta") or {}).get("ORIGINAL")
+            if url:
+                links[path] = url
+        for path in paths:                    # видео без ORIGINAL — mpfs/url
+            if path in links:
+                continue
+            try:
+                url = self.item_url(path)
+            except UnlimError:
+                url = None
             if url:
                 links[path] = url
         return links

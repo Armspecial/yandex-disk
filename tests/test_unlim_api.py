@@ -359,3 +359,41 @@ def test_iter_media_filters_by_media_type():
 
     videos = list(_client(sleeper).iter_media("video"))
     assert [v.name for v in videos] == ["VID.mp4"]
+
+
+# --- mpfs/url: прямая ссылка (в т.ч. видео) ------------------------------------------
+
+
+@rsplib.activate
+def test_item_url_prefixes_scheme():
+    """mpfs/url → .file: дописываем https: к протоколо-относительной ссылке."""
+    sleeps, sleeper = _recorder()
+    rsplib.add(rsplib.GET, f"{BASE}/", body=_page_html(), content_type="text/html")
+    rsplib.add(rsplib.POST, f"{BASE}/models-v2?m=mpfs/url",
+               json={"data": {"file": "//downloader.disk.yandex.ru/disk/x?y=1"}})
+
+    url = _client(sleeper).item_url("/photounlim/VID.MP4")
+    assert url == "https://downloader.disk.yandex.ru/disk/x?y=1"
+
+    import json as jsonlib
+
+    body = jsonlib.loads(rsplib.calls[1].request.body)["requestParams"]
+    assert body == {"path": "/photounlim/VID.MP4", "inline": True}
+
+
+@rsplib.activate
+def test_download_links_fallback_for_video():
+    """Фото берёт ORIGINAL из bulk-инфо; видео (без ORIGINAL) — поштучно mpfs/url."""
+    sleeps, sleeper = _recorder()
+    rsplib.add(rsplib.GET, f"{BASE}/", body=_page_html(), content_type="text/html")
+    rsplib.add(rsplib.POST, BULK_URL, json={"data": [
+        _info("/photounlim/IMG.jpg"), _info("/photounlim/VID.mp4")]})
+    rsplib.add(rsplib.POST, f"{BASE}/models-v2?m=mpfs/url",
+               json={"data": {"file": "//downloader.disk.yandex.ru/disk/vid"}})
+
+    links = _client(sleeper).download_links(
+        ["/photounlim/IMG.jpg", "/photounlim/VID.mp4"])
+    assert links == {
+        "/photounlim/IMG.jpg": "https://1.downloader.disk.yandex.ru/disk/orig",
+        "/photounlim/VID.mp4": "https://downloader.disk.yandex.ru/disk/vid",
+    }
