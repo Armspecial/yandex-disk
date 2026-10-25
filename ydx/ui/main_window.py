@@ -28,6 +28,20 @@ from ydx.ui.widgets import icon, make_avatar
 
 PLACEHOLDER_PAGES = ("files", "recent", "photos", "shares", "transfers", "trash")
 
+# состояния, в которых демон уже работает — стартовать не нужно
+_SYNC_RUNNING_STATES = ("idle", "busy", "paused", "index")
+
+
+def should_autostart_sync(installed: bool, has_account: bool, enabled: bool, state: str) -> bool:
+    """Запускать ли демон при старте приложения/входе: только если он
+    установлен, есть активный аккаунт, галочка включена и он ещё не работает."""
+    return (
+        installed
+        and has_account
+        and enabled
+        and state not in _SYNC_RUNNING_STATES
+    )
+
 
 class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings, accounts: AccountManager) -> None:
@@ -138,10 +152,12 @@ class MainWindow(QMainWindow):
         self.daemon = DaemonController(accounts)
         self.sidebar.sync_btn.setVisible(self.daemon.installed)
         self.daemon.availability_changed.connect(self.sidebar.sync_btn.setVisible)
+        self._last_daemon_state = "unknown"
         if self.daemon.installed:
             self.daemon.watch()
             self.daemon.status_updated.connect(self._on_daemon_status_banner)
         self.tray = TrayController(self, accounts, self.daemon)
+        self._autostart_sync()   # accounts.start() в app.py срабатывает ДО конструктора
 
         accounts.accounts_changed.connect(self._on_accounts_changed)
         accounts.active_changed.connect(self._on_active_changed)
@@ -229,8 +245,23 @@ class MainWindow(QMainWindow):
         # Ctrl+W — закрыть окно (в трей), как кнопкой «✕»
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
 
+    def _autostart_sync(self) -> None:
+        """Запустить демон, если пользователь включил «всегда синхронизировать».
+
+        Идемпотентно: на работающем демоне `yandex-disk start` безвреден,
+        а гард по состоянию исключает лишние вызовы при смене аккаунта.
+        """
+        if should_autostart_sync(
+            self.daemon.installed,
+            self._accounts.active is not None,
+            bool(self._settings.get("sync_autostart")),
+            self._last_daemon_state,
+        ):
+            self.daemon.start()
+
     def _on_daemon_status_banner(self, status) -> None:
         """Нижний баннер: проценты и скорость, пока идёт синхронизация."""
+        self._last_daemon_state = status.state
         active = status.state in ("busy", "index")
         self.sync_banner.setVisible(active)
         if not active:
@@ -340,6 +371,7 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self._pages.get("files", self._pages["files"]))
             self.sidebar.set_section("files")
             self._accounts.refresh_quota()
+            self._autostart_sync()
 
     def _show_account_menu(self, global_pos) -> None:
         menu = QMenu(self)
@@ -393,6 +425,12 @@ class MainWindow(QMainWindow):
                              unlim=self.unlim)
         dlg.set_secure(self._token_secure)
         dlg.exec()
+        # страховка: отписаться от статуса, даже если closeEvent не дошёл
+        if hasattr(dlg, "_on_daemon_status"):
+            try:
+                self.daemon.status_updated.disconnect(dlg._on_daemon_status)
+            except (RuntimeError, TypeError):
+                pass
         dlg.deleteLater()
         if self._accounts.active is None:
             QTimer.singleShot(0, self.show_login)

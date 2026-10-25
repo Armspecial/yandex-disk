@@ -1,5 +1,5 @@
 """Диалог «Синхронизация»: статус демона, старт/стоп/пауза,
-выборочная синхронизация (exclude-dirs), read-only, папка."""
+«папки на компьютере» (exclude-dirs), read-only, папка."""
 
 from __future__ import annotations
 
@@ -26,6 +26,7 @@ from ydx.services.daemon import DaemonController
 from ydx.services.workers import run_in_thread
 from ydx.ui.errors_ui import confirm
 from ydx.services.fmt import human_size
+from ydx.ui.widgets import icon
 
 
 class SyncDialog(QDialog):
@@ -89,10 +90,18 @@ class SyncDialog(QDialog):
         self.readonly_check.toggled.connect(self._mark_dirty)
         col.addWidget(self.readonly_check)
 
-        # выборочная синхронизация
+        # какие папки держать на компьютере (снимок галочку = только в облаке)
+        title_row = QHBoxLayout()
         self.selective_title = QLabel()
         self.selective_title.setObjectName("dialogHint")
-        col.addWidget(self.selective_title)
+        self.selective_title.setWordWrap(True)
+        title_row.addWidget(self.selective_title, 1)
+        self.refresh_btn = QPushButton()
+        self.refresh_btn.setProperty("class", "flat")
+        self.refresh_btn.setIcon(icon("refresh"))
+        self.refresh_btn.clicked.connect(self._load_folders)
+        title_row.addWidget(self.refresh_btn)
+        col.addLayout(title_row)
         self.tree = QTreeWidget()
         self.tree.setHeaderHidden(True)
         self.tree.itemChanged.connect(lambda *_: self._mark_dirty())
@@ -135,14 +144,37 @@ class SyncDialog(QDialog):
     def _load_folders(self) -> None:
         if self._resources is None:
             return
+        self.refresh_btn.setEnabled(False)
+        if self.tree.topLevelItemCount() == 0:
+            self.tree.blockSignals(True)
+            loading = QTreeWidgetItem([i18n.tr("files.loading")])
+            loading.setFlags(Qt.ItemFlag.NoItemFlags)
+            self.tree.addTopLevelItem(loading)
+            self.tree.blockSignals(False)
 
         def job():
             items, _ = self._resources.list_page("disk:/", limit=500)
             return [r.name for r in items if r.is_dir]
 
-        run_in_thread(job, self._fill_tree, lambda _e: None)
+        def on_error(_e: Exception) -> None:
+            # список остаётся как есть — повторить можно кнопкой «Обновить»
+            self.refresh_btn.setEnabled(True)
+
+        run_in_thread(job, self._fill_tree, on_error)
+
+    def _pending_excludes(self) -> set[str]:
+        """Текущие «только в облаке»: из живого дерева, чтобы незаписанные
+        правки пережили «Обновить»; до загрузки — из конфига."""
+        if not self._tree_loaded:
+            return set(self._exclude)
+        return {
+            self.tree.topLevelItem(i).text(0)
+            for i in range(self.tree.topLevelItemCount())
+            if self.tree.topLevelItem(i).checkState(0) == Qt.CheckState.Unchecked
+        }
 
     def _fill_tree(self, dir_names: list[str]) -> None:
+        excludes = self._pending_excludes()
         self.tree.blockSignals(True)
         self.tree.clear()
         for name in dir_names:
@@ -150,11 +182,12 @@ class SyncDialog(QDialog):
             item.setFlags(item.flags() | Qt.ItemFlag.ItemIsUserCheckable)
             item.setCheckState(
                 0,
-                Qt.CheckState.Checked if name in self._exclude else Qt.CheckState.Unchecked,
+                Qt.CheckState.Unchecked if name in excludes else Qt.CheckState.Checked,
             )
             self.tree.addTopLevelItem(item)
         self.tree.blockSignals(False)
         self._tree_loaded = True
+        self.refresh_btn.setEnabled(True)
 
     # --- управление демоном -----------------------------------------------------------
 
@@ -220,8 +253,9 @@ class SyncDialog(QDialog):
             self._mark_dirty()
 
     def _apply(self) -> None:
-        # exclude-dirs пишем только если дерево реально загрузилось, иначе
-        # рискуем стереть существующие исключения; подпути (a/b) не трогаем
+        # exclude-dirs = папки без галочки; пишем только если дерево реально
+        # загрузилось, иначе рискуем стереть существующие исключения;
+        # подпути (a/b) не трогаем
         updates: dict[str, str] = {
             "read-only": "true" if self.readonly_check.isChecked() else "false",
         }
@@ -229,7 +263,7 @@ class SyncDialog(QDialog):
             excluded = [
                 self.tree.topLevelItem(i).text(0)
                 for i in range(self.tree.topLevelItemCount())
-                if self.tree.topLevelItem(i).checkState(0) == Qt.CheckState.Checked
+                if self.tree.topLevelItem(i).checkState(0) == Qt.CheckState.Unchecked
             ]
             # сохранить подпути из текущего конфига (дерево показывает только верхний уровень)
             subpaths = [p for p in parse_exclude_dirs(
@@ -256,7 +290,9 @@ class SyncDialog(QDialog):
         self.folder_btn.setText(i18n.tr("sync.change_folder"))
         self.readonly_check.setText(i18n.tr("sync.readonly"))
         self.selective_title.setText(
-            i18n.tr("sync.selective") + " — " + i18n.tr("sync.selective_hint")
+            i18n.tr("sync.folders_title") + " — " + i18n.tr("sync.folders_hint")
         )
+        self.refresh_btn.setText(i18n.tr("sync.refresh"))
+        self.refresh_btn.setToolTip(i18n.tr("sync.refresh"))
         self.paywall_banner.setText(i18n.tr("sync.paywall_hint"))
         self.apply_btn.setText(i18n.tr("common.ok"))

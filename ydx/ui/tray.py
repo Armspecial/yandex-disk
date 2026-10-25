@@ -16,21 +16,22 @@ from ydx.services.fmt import human_size
 
 log = logging.getLogger(__name__)
 
+# цвет состояния демона: зелёный idle, жёлтый busy, красный error, серый stopped
+STATUS_COLORS = {
+    "idle": SUCCESS,
+    "busy": ACCENT,
+    "index": ACCENT,
+    "paused": "#B8860B",
+    "error": DANGER,
+    "no-internet": DANGER,
+    "paywall": DANGER,
+    "stopped": "#9A9CA3",
+}
+
 
 def _status_icon(state: str) -> QIcon:
-    """Цветной квадрат-статус: зелёный idle, жёлтый busy, красный error,
-    серый stopped/none. Пиксели для dpr 1 и 2 — чтобы не мылило."""
-    colors = {
-        "idle": SUCCESS,
-        "busy": ACCENT,
-        "index": ACCENT,
-        "paused": "#B8860B",
-        "error": DANGER,
-        "no-internet": DANGER,
-        "paywall": DANGER,
-        "stopped": "#9A9CA3",
-    }
-    color = QColor(colors.get(state, "#9A9CA3"))
+    """Цветной квадрат-статус. Пиксели для dpr 1 и 2 — чтобы не мылило."""
+    color = QColor(STATUS_COLORS.get(state, "#9A9CA3"))
     icon = QIcon()
     for dpr in (1, 2):
         size = 22 * dpr

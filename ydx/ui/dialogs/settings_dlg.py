@@ -19,6 +19,7 @@ from PySide6.QtWidgets import (
 
 from ydx import full_version
 from ydx.constants import APP_ID
+from ydx.core.models import DaemonStatus
 from ydx.services import i18n
 from ydx.services.settings import AppSettings
 from ydx.ui.theme import apply_theme
@@ -95,23 +96,49 @@ class SettingsDialog(QDialog):
 
         col.addWidget(general)
 
-        # синхронизация: папку можно поменять в любой момент
+        # синхронизация: живой статус демона; папку можно поменять в любой момент
         if self._daemon is not None and self._daemon.installed:
             sync_box = QGroupBox(i18n.tr("sync.title"))
             self._sync_box = sync_box
-            srow = QHBoxLayout(sync_box)
+            svcol = QVBoxLayout(sync_box)
+            svcol.setSpacing(10)
+            self._status = DaemonStatus()
+
+            status_row = QHBoxLayout()
+            self.sync_state_dot = QLabel()
+            self.sync_state_dot.setFixedSize(12, 12)
+            self.sync_state_label = QLabel()
+            self.sync_state_label.setObjectName("dialogHint")
+            self.sync_toggle_btn = QPushButton()
+            self.sync_toggle_btn.clicked.connect(self._toggle_sync)
+            self.sync_now_btn = QPushButton(i18n.tr("sync.sync_now"))
+            self.sync_now_btn.setProperty("class", "primary")
+            self.sync_now_btn.clicked.connect(self._daemon.sync_now)
+            status_row.addWidget(self.sync_state_dot)
+            status_row.addWidget(self.sync_state_label, 1)
+            status_row.addWidget(self.sync_toggle_btn)
+            status_row.addWidget(self.sync_now_btn)
+            svcol.addLayout(status_row)
+
+            folder_row = QHBoxLayout()
             self.sync_folder_label = QLabel()
             self.sync_folder_label.setObjectName("dialogHint")
             change_btn = QPushButton(i18n.tr("sync.change_folder"))
             change_btn.clicked.connect(self._change_sync_folder)
-            self.sync_now_btn = QPushButton(i18n.tr("sync.sync_now"))
-            self.sync_now_btn.setProperty("class", "primary")
-            self.sync_now_btn.clicked.connect(self._daemon.sync_now)
-            srow.addWidget(self.sync_folder_label, 1)
-            srow.addWidget(change_btn)
-            srow.addWidget(self.sync_now_btn)
+            folder_row.addWidget(self.sync_folder_label, 1)
+            folder_row.addWidget(change_btn)
+            svcol.addLayout(folder_row)
+
+            self.sync_autostart_check = QCheckBox(i18n.tr("sync.autostart"))
+            self.sync_autostart_check.setChecked(bool(self._settings.get("sync_autostart")))
+            self.sync_autostart_check.toggled.connect(self._sync_autostart_toggled)
+            svcol.addWidget(self.sync_autostart_check)
+
             col.addWidget(sync_box)
             self._update_sync_folder_label()
+            self._on_daemon_status(self._status)
+            self._daemon.status_updated.connect(self._on_daemon_status)
+            self._daemon.refresh_status()
 
         # хранилище токенов + текущий аккаунт + выход
         storage = QGroupBox(i18n.tr("settings.account"))
@@ -214,6 +241,48 @@ class SettingsDialog(QDialog):
 
     # --- синхронизация ------------------------------------------------------------
 
+    def _on_daemon_status(self, status: DaemonStatus) -> None:
+        """Точка + текст состояния + тумблер Запустить/Остановить."""
+        self._status = status
+        state_key = f"sync.state.{status.state}"
+        text = i18n.tr(state_key)
+        if state_key == text:   # нет перевода
+            text = status.state
+        if status.progress:
+            text += " · " + status.progress
+        self.sync_state_label.setText(text)
+
+        from ydx.ui.tray import STATUS_COLORS
+        from ydx.ui.widgets import status_dot
+
+        color = STATUS_COLORS.get(status.state, "#9A9CA3")
+        self.sync_state_dot.setPixmap(status_dot(color))
+        running = status.state in ("idle", "busy", "paused", "index", "paywall")
+        self.sync_toggle_btn.setText(
+            i18n.tr("sync.stop") if running else i18n.tr("sync.start")
+        )
+
+    def _toggle_sync(self) -> None:
+        if self._status.state in ("idle", "busy", "paused", "index", "paywall"):
+            self._daemon.cancel_pause()
+            self._daemon.stop()
+            return
+        # при первом запуске папку выбирает пользователь, а не дефолт ~/Yandex.Disk
+        if not self._daemon.config().get("dir"):
+            from ydx.ui.widgets import pick_directory
+
+            folder = pick_directory(self, i18n.tr("sync.choose_folder"), str(Path.home()))
+            if not folder:
+                return
+            self._daemon.apply_config({"dir": folder})
+            self._update_sync_folder_label()
+        if not self._daemon.ensure_config():
+            return
+        self._daemon.start()
+
+    def _sync_autostart_toggled(self, on: bool) -> None:
+        self._settings.set("sync_autostart", on)
+
     def _update_sync_folder_label(self) -> None:
         from ydx.services.sync_state import LocalSyncIndex
 
@@ -310,7 +379,9 @@ class SettingsDialog(QDialog):
         if hasattr(self, "_sync_box"):
             self._sync_box.setTitle(i18n.tr("sync.title"))
             self.sync_now_btn.setText(i18n.tr("sync.sync_now"))
+            self.sync_autostart_check.setText(i18n.tr("sync.autostart"))
             self._update_sync_folder_label()
+            self._on_daemon_status(self._status)   # статус — строками нового языка
         if hasattr(self, "_unlim_box"):
             self._unlim_box.setTitle(i18n.tr("settings.unlim"))
             self.unlim_web_btn.setText(i18n.tr("unlim.open_web"))
@@ -325,5 +396,10 @@ class SettingsDialog(QDialog):
             self.theme_combo.setItemText(idx, i18n.tr(key))
 
     def closeEvent(self, event) -> None:  # noqa: N802 — Qt API
+        if hasattr(self, "_sync_box"):
+            try:
+                self._daemon.status_updated.disconnect(self._on_daemon_status)
+            except (RuntimeError, TypeError):
+                pass
         i18n.unregister(self.retranslate)
         super().closeEvent(event)

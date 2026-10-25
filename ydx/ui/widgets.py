@@ -21,6 +21,21 @@ def icon(name: str) -> QIcon:
     return _icon_cache[name]
 
 
+def status_dot(color: str, size: int = 12, dpr: float = 2.0) -> QPixmap:
+    """Круглая точка-индикатор состояния (для строки статуса в диалогах)."""
+    px = int(size * dpr)
+    pm = QPixmap(px, px)
+    pm.setDevicePixelRatio(dpr)
+    pm.fill(Qt.GlobalColor.transparent)
+    painter = QPainter(pm)
+    painter.setRenderHint(QPainter.RenderHint.Antialiasing)
+    painter.setPen(Qt.PenStyle.NoPen)
+    painter.setBrush(QColor(color))
+    painter.drawEllipse(0, 0, size, size)
+    painter.end()
+    return pm
+
+
 def pick_directory(parent, title: str, start_dir: str = "") -> str:
     """Выбор папки. Всегда НЕнативный диалог: нативный (GTK/portal) зависает
     на некоторых сессиях (см. ошибку регистрации в xdg-desktop-portal)."""
