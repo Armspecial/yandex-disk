@@ -84,6 +84,7 @@ class TrashPage(QWidget):
 
         self.view.open_requested.connect(self._open)
         self.view.context_menu_requested.connect(self._context_menu)
+        self.view.delete_requested.connect(self._delete_forever)
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
         self.model.layoutChanged.connect(self._update_states)   # пустой финал

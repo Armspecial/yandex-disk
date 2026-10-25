@@ -553,3 +553,85 @@ def test_delete_unlim_photo_calls_service(qapp, monkeypatch):
 
     assert unlim.deleted == ["photounlim:/2026-09-26 18-51-52.JPG"]
     assert all(r.path != res.path for r in page.model.items)
+
+
+# --- клавиша Delete и множественное удаление --------------------------------------
+
+
+def _key_delete(widget) -> None:
+    from PySide6.QtCore import QEvent, Qt
+    from PySide6.QtGui import QKeyEvent
+
+    event = QKeyEvent(QEvent.Type.KeyPress, Qt.Key.Key_Delete,
+                      Qt.KeyboardModifier.NoModifier)
+    widget.keyPressEvent(event)
+
+
+def test_timeline_delete_key_emits_selection(qapp):
+    """Delete на таймлайне отдаёт выделенное странице сигналом."""
+    from datetime import datetime, timezone
+
+    from ydx.core.models import Resource
+    from ydx.services.thumbs import ThumbService
+    from ydx.ui.views.photo_timeline import PhotoTimelineView
+
+    def res(name):
+        return Resource(name=name, type="file", path=f"photounlim:/{name}",
+                        media_type="image", size=5,
+                        modified=datetime(2026, 9, 28, 16, 4, tzinfo=timezone.utc))
+
+    view = PhotoTimelineView(ThumbService(lambda: None))
+    view.resize(1200, 800)
+    view.set_photos([res("a.jpg"), res("b.jpg"), res("c.jpg")])
+    view.show()
+    qapp.processEvents()
+
+    # выделяем два первых тайла (строка 0 — заголовок дня, тайлы в строке 1)
+    from PySide6.QtCore import QItemSelection, QItemSelectionModel
+
+    sel = QItemSelection(view.model().index(1, 0), view.model().index(1, 1))
+    view.selectionModel().select(
+        sel, QItemSelectionModel.SelectionFlag.ClearAndSelect)
+
+    got: list = []
+    view.delete_requested.connect(lambda items: got.extend(items))
+    _key_delete(view)
+    assert [r.name for r in got] == ["a.jpg", "b.jpg"]
+
+
+def test_delete_multiple_unlim_photos(qapp, monkeypatch):
+    """Мультивыделение + Delete: обе позиции уходят сервису одним вызовом."""
+    import ydx.ui.views.photos_page as pp
+
+    class _Unlim:
+        enabled = True
+        has_cookies = True
+
+        def __init__(self) -> None:
+            self.batches: list[list[str]] = []
+
+        def date_overrides(self):
+            return {}
+
+        def iter_media(self, _wanted=None):
+            return iter([])
+
+        def delete_items(self, resources):
+            self.batches.append([r.path for r in resources])
+            return [r.path.replace("photounlim:/", "/photounlim/", 1)
+                    for r in resources]
+
+    unlim = _Unlim()
+    first = _del_photo("photounlim:/a.jpg")
+    second = _del_photo("photounlim:/b.jpg")
+    page, _acc = _page_from(qapp, _StubAccounts(_StubApi([])))
+    page._unlim = unlim
+    page.model.set_items([first, second])
+    _pump(200)
+
+    monkeypatch.setattr(pp, "QMessageBox", _YesBox)
+    page._delete_selected([first, second])
+    _pump(600)
+
+    assert unlim.batches == [["photounlim:/a.jpg", "photounlim:/b.jpg"]]
+    assert page.model.items == []

@@ -137,6 +137,7 @@ class FilesPage(QWidget):
         self.toolbar.upload_folder_clicked.connect(self._upload_folder_dialog)
         self.view.open_requested.connect(self._open)
         self.view.context_menu_requested.connect(self._context_menu)
+        self.view.delete_requested.connect(self.delete)
         self.view.move_requested.connect(self._move_to)
         self.view.files_dropped.connect(
             lambda urls: self._enqueue_uploads([u.toLocalFile() for u in urls])

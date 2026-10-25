@@ -288,5 +288,6 @@
   "viewer.open_external": "Open in system player",
   "photos.delete": "Delete from Disk",
   "photos.delete_confirm": "Delete \"{name}\" from Disk? It will move to Trash, where it can be restored.",
-  "photos.delete_error": "Could not delete \"{name}\": {error}"
+  "photos.delete_error": "Could not delete \"{name}\": {error}",
+  "photos.delete_confirm_many": "Delete {n} files from Disk? They will move to Trash, where they can be restored."
 }

@@ -198,6 +198,7 @@ class FilesView(QListView):
     context_menu_requested = Signal(QPoint, list)  # глобальная позиция, [Resource]
     move_requested = Signal(list, str)           # [path], целевая папка
     files_dropped = Signal(list)                 # [QUrl] локальные файлы (загрузка)
+    delete_requested = Signal(list)              # Delete → выделенные [Resource]
 
     def __init__(self, model, thumbs: ThumbService, parent=None) -> None:
         super().__init__(parent)
@@ -238,6 +239,15 @@ class FilesView(QListView):
     def set_item_states(self, states: dict[str, str]) -> None:
         self._delegate.item_states = states
         self.viewport().update()
+
+    def keyPressEvent(self, event) -> None:      # noqa: N802 — Qt API
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            selected = self.selected_resources()
+            if selected:
+                self.delete_requested.emit(selected)
+                event.accept()
+                return
+        super().keyPressEvent(event)
 
     def set_vertical_scroll_mode(self) -> None:
         self.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)

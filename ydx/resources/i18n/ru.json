@@ -288,5 +288,6 @@
   "viewer.open_external": "Открыть в системном плеере",
   "photos.delete": "Удалить с Диска",
   "photos.delete_confirm": "Удалить «{name}» с Диска? Файл попадёт в Корзину — оттуда его можно восстановить.",
-  "photos.delete_error": "Не удалось удалить «{name}»: {error}"
+  "photos.delete_error": "Не удалось удалить «{name}»: {error}",
+  "photos.delete_confirm_many": "Удалить {n} файлов с Диска? Они попадут в Корзину — оттуда их можно восстановить."
 }

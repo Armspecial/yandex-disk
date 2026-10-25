@@ -223,6 +223,7 @@ class PhotoTimelineView(QTableView):
 
     open_requested = Signal(object)                # Resource
     context_menu_requested = Signal(object, list)  # глобальная позиция, [Resource]
+    delete_requested = Signal(list)                # Delete → выделенные [Resource]
 
     def __init__(self, thumbs: ThumbService, parent=None) -> None:
         super().__init__(parent)
@@ -320,4 +321,39 @@ class PhotoTimelineView(QTableView):
             if len(sel) == 1:
                 self.open_requested.emit(sel[0])
                 return
+        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+            sel = self.selected_resources()
+            if sel:
+                self.delete_requested.emit(sel)
+                event.accept()
+                return
         super().keyPressEvent(event)
+
+    # --- лассо мышью: QTableView выделяет протяжкой, но рамку не рисует -------
+
+    def mousePressEvent(self, event) -> None:  # noqa: N802 — Qt API
+        from PySide6.QtWidgets import QRubberBand
+
+        if event.button() == Qt.MouseButton.LeftButton:
+            self._rubber_origin = event.position().toPoint()
+            self._rubber = QRubberBand(QRubberBand.Shape.Rectangle, self)
+            self._rubber.setGeometry(QRect(self._rubber_origin,
+                                            self._rubber_origin))
+            self._rubber.show()
+        super().mousePressEvent(event)
+
+    def mouseMoveEvent(self, event) -> None:  # noqa: N802 — Qt API
+        rubber = getattr(self, "_rubber", None)
+        if rubber is not None:
+            rubber.setGeometry(QRect(
+                self._rubber_origin,
+                event.position().toPoint()).normalized())
+        super().mouseMoveEvent(event)
+
+    def mouseReleaseEvent(self, event) -> None:  # noqa: N802 — Qt API
+        rubber = getattr(self, "_rubber", None)
+        if rubber is not None:
+            rubber.hide()
+            rubber.deleteLater()
+            self._rubber = None
+        super().mouseReleaseEvent(event)

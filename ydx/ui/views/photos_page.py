@@ -140,6 +140,7 @@ class PhotosPage(QWidget):
 
         self.timeline.open_requested.connect(self._open_photo)
         self.timeline.context_menu_requested.connect(self._context_menu)
+        self.timeline.delete_requested.connect(self._delete_selected)
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
         # таймлайн перестраивается по мере сбора (сортирует и группирует сам);
@@ -479,9 +480,17 @@ class PhotosPage(QWidget):
     def _context_menu(self, global_pos, resources: list[Resource]) -> None:
         if not resources:
             return
-        single = resources[0] if len(resources) == 1 else None
-        if single is None:
+        if len(resources) > 1:                   # протяжка/ctrl — группа целиком
+            menu = QMenu(self)
+            act_save = QAction(i18n.tr("ctx.download"), menu)
+            act_save.triggered.connect(lambda: self._download_selected(resources))
+            menu.addAction(act_save)
+            act_del = QAction(i18n.tr("photos.delete"), menu)
+            act_del.triggered.connect(lambda: self._delete_selected(resources))
+            menu.addAction(act_del)
+            menu.exec(global_pos)
             return
+        single = resources[0]
         menu = QMenu(self)
         act_open = QAction(i18n.tr("ctx.open"), menu)
         act_open.triggered.connect(lambda: self._open_photo(single))
@@ -501,31 +510,47 @@ class PhotosPage(QWidget):
         menu.exec(global_pos)
 
     def _delete_selected(self, resources: list[Resource]) -> None:
-        """Удаление с Диска (в Корзину) — подтверждение, затем фоново."""
+        """Удаление с Диска (в Корзину) — подтверждение, затем фоном."""
         from ydx.services.workers import run_in_thread
 
-        single = resources[0]
+        files = [r for r in resources if not r.is_dir]
+        if not files:
+            return
+        if len(files) == 1:
+            text = i18n.tr("photos.delete_confirm", name=files[0].name)
+        else:
+            text = i18n.tr("photos.delete_confirm_many", n=len(files))
         answer = QMessageBox.question(
-            self, i18n.tr("photos.delete"),
-            i18n.tr("photos.delete_confirm", name=single.name),
+            self, i18n.tr("photos.delete"), text,
             QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
             QMessageBox.StandardButton.No)
         if answer != QMessageBox.StandardButton.Yes:
             return
 
-        if single.path.startswith("photounlim:") and self._unlim is not None:
+        unlim_items = [r for r in files if r.path.startswith("photounlim:")]
+        rest = [r for r in files if not r.path.startswith("photounlim:")]
+        if unlim_items:
+            if self._unlim is None:
+                self._delete_failed(unlim_items[0],
+                                    Exception(i18n.tr("unlim.no_link")))
+            else:
+                run_in_thread(
+                    lambda: self._unlim.delete_items(unlim_items),
+                    lambda _ok: self._drop_items([r.path for r in unlim_items]),
+                    lambda exc: self._delete_failed(unlim_items[0], exc))
+        if rest:
+            api = self._accounts.resources
+            if api is None:
+                return
+
+            def job():
+                for r in rest:
+                    api.delete(r.path)
+
             run_in_thread(
-                lambda: self._unlim.delete_items([single]),
-                lambda _ok: self._drop_items([single.path]),
-                lambda exc: self._delete_failed(single, exc))
-            return
-        api = self._accounts.resources
-        if api is None:
-            return
-        run_in_thread(
-            lambda: api.delete(single.path),
-            lambda _op: self._drop_items([single.path]),
-            lambda exc: self._delete_failed(single, exc))
+                job,
+                lambda _n: self._drop_items([r.path for r in rest]),
+                lambda exc: self._delete_failed(rest[0], exc))
 
     def _drop_items(self, paths: list[str]) -> None:
         """Убрать удалённое из модели и собранной копии ленты."""
