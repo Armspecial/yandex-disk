@@ -94,7 +94,7 @@ class PhotosPage(QWidget):
         hlay.addWidget(self.back_btn)
 
         # сортировка фото: дата / размер / имя (прокси вешается после создания вида)
-        from PySide6.QtWidgets import QComboBox
+        from PySide6.QtWidgets import QComboBox, QSlider
 
         self.sort_combo = QComboBox()
         for value, key in (("modified", "photos.sort.date"),
@@ -102,6 +102,16 @@ class PhotosPage(QWidget):
                            ("name", "photos.sort.name")):
             self.sort_combo.addItem(i18n.tr(key), value)
         hlay.addWidget(self.sort_combo)
+
+        # размер плиток таймлайна («Все фото»)
+        from ydx.ui.views.photo_timeline import TILE_MAX, TILE_MIN
+
+        self.tile_slider = QSlider(Qt.Orientation.Horizontal)
+        self.tile_slider.setRange(TILE_MIN, TILE_MAX)
+        self.tile_slider.setSingleStep(8)
+        self.tile_slider.setPageStep(32)
+        self.tile_slider.setFixedWidth(120)
+        hlay.addWidget(self.tile_slider)
 
         self.all_btn = QPushButton()
         self.all_btn.setCheckable(True)
@@ -155,6 +165,23 @@ class PhotosPage(QWidget):
         # «Все фото»: таймлайн с заголовками дней, новые сверху
         self.timeline = PhotoTimelineView(thumbs)
         self.stack.addWidget(self.timeline)
+
+        # сохранённый размер плиток + слайдер; переложить ленту не на каждый тик
+        from PySide6.QtCore import QTimer
+        from ydx.ui.views.photo_timeline import TILE
+
+        tile = TILE
+        if self._settings is not None:
+            tile = int(self._settings.get("photo_tile") or TILE)
+        self.timeline.set_tile(tile)
+        self.tile_slider.blockSignals(True)
+        self.tile_slider.setValue(self.timeline.tile)
+        self.tile_slider.blockSignals(False)
+        self._tile_timer = QTimer(self)
+        self._tile_timer.setSingleShot(True)
+        self._tile_timer.setInterval(120)
+        self._tile_timer.timeout.connect(self._apply_tile)
+        self.tile_slider.valueChanged.connect(lambda _v: self._tile_timer.start())
 
         # сетка альбомов
         self.albums_model = ResourceListModel(self)
@@ -358,6 +385,14 @@ class PhotosPage(QWidget):
 
         run_in_thread(pull, done, failed or (lambda _e: None))
 
+    def _apply_tile(self) -> None:
+        """Слайдер размера плиток: переложить таймлайн и запомнить выбор."""
+        px = self.tile_slider.value()
+        self.timeline.set_tile(px)
+        self.timeline.set_photos(self.model.items)
+        if self._settings is not None:
+            self._settings.set("photo_tile", px)
+
     def _invalidate(self) -> None:
         self._collect_id += 1
         self._collected.clear()
@@ -380,6 +415,7 @@ class PhotosPage(QWidget):
         self.albums_btn.setChecked(mode == "albums")
         self.back_btn.setVisible(mode == "album")
         self.sort_combo.setVisible(mode == "album")   # сортировка — только в альбоме
+        self.tile_slider.setVisible(mode == "all")    # плитки — только в таймлайне
         self.download_btn.setEnabled(False)
         self.download_btn.setVisible(mode in ("all", "album"))
         if mode == "albums":
@@ -590,6 +626,7 @@ class PhotosPage(QWidget):
         self.video_btn.setText(i18n.tr("photos.tab_video"))
         self.back_btn.setText(i18n.tr("photos.back_albums"))
         self.download_btn.setText(i18n.tr("ctx.download"))
+        self.tile_slider.setToolTip(i18n.tr("photos.tile_size"))
         self.counter.setText(i18n.tr("photos.count", n=self.model.rowCount()))
         for value, key in (("modified", "photos.sort.date"),
                            ("size", "photos.sort.size"),

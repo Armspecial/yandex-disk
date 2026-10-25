@@ -33,6 +33,7 @@ DEFAULTS = {
     "downloads_dir": "",          # пусто = системная папка «Загрузки»
     "last_upload_dir": "",
     "show_unlim": True,           # безлимитная автозагрузка в разделе «Фото»
+    "photo_tile": 176,            # размер плиток таймлайна «Фото», px
 }
 
 _BOOL = {"true", "false"}

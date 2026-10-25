@@ -20,7 +20,9 @@ from ydx.ui.views.files_model import ResourceRole
 from ydx.ui.views.files_view import FilesDelegate, _sel_colors
 
 TILE = 176                # ячейка миниатюры (ширина колонки и высота строки)
-THUMB = TILE - 24         # сама миниатюра внутри ячейки
+TILE_MIN = 96             # границы регулировки размера плиток
+TILE_MAX = 288
+THUMB_MARGIN = 24         # поля внутри ячейки (миниатюра = плитка − margin)
 HEADER_H = 44             # высота строки-заголовка дня
 
 HeaderRole = Qt.ItemDataRole.UserRole + 10   # заголовок дня (строка)
@@ -121,10 +123,15 @@ class PhotoTimelineModel(QAbstractTableModel):
 
 
 class _TileDelegate(FilesDelegate):
-    """Ячейка-миниатюра без подписей; для видео — постер, если есть."""
+    """Ячейка-миниатюра без подписей; для видео — постер, если есть.
+    Размер плитки спрашивает у вьюхи — он регулируется слайдером."""
+
+    def __init__(self, thumbs: ThumbService, view: "PhotoTimelineView") -> None:
+        super().__init__(thumbs)
+        self._view = view
 
     def sizeHint(self, option, index) -> QSize:  # noqa: N802 — Qt API
-        return QSize(TILE, TILE)
+        return QSize(self._view.tile, self._view.tile)
 
     def paint(self, painter, option, index) -> None:
         resource = index.data(ResourceRole)
@@ -142,11 +149,12 @@ class _TileDelegate(FilesDelegate):
                 painter.setPen(Qt.PenStyle.NoPen)
                 painter.setBrush(sel if selected else hov)
                 painter.drawRoundedRect(rect.adjusted(3, 3, -3, -3), 10, 10)
-            pm = self._icon(resource, THUMB, index)
+            thumb = self._view.tile - THUMB_MARGIN
+            pm = self._icon(resource, thumb, index)
             icon_rect = QRect(
-                rect.left() + (rect.width() - THUMB) // 2,
-                rect.top() + (rect.height() - THUMB) // 2,
-                THUMB, THUMB,
+                rect.left() + (rect.width() - thumb) // 2,
+                rect.top() + (rect.height() - thumb) // 2,
+                thumb, thumb,
             )
             painter.drawPixmap(icon_rect, pm)
             self._sync_badge(painter, icon_rect, resource)
@@ -190,6 +198,7 @@ class PhotoTimelineView(QTableView):
 
     def __init__(self, thumbs: ThumbService, parent=None) -> None:
         super().__init__(parent)
+        self.tile = TILE                 # размер плитки (регулируется слайдером)
         self.timeline_model = PhotoTimelineModel(self)
         self.setModel(self.timeline_model)
         self._delegate = _TileDelegate(thumbs, self)
@@ -202,10 +211,10 @@ class PhotoTimelineView(QTableView):
         self.setCornerButtonEnabled(False)
         self.setWordWrap(False)
         self.horizontalHeader().hide()
-        self.horizontalHeader().setDefaultSectionSize(TILE)
+        self.horizontalHeader().setDefaultSectionSize(self.tile)
         self.horizontalHeader().setSectionResizeMode(QHeaderView.ResizeMode.Fixed)
         self.verticalHeader().hide()
-        self.verticalHeader().setDefaultSectionSize(TILE)
+        self.verticalHeader().setDefaultSectionSize(self.tile)
         self.setVerticalScrollMode(QTableView.ScrollMode.ScrollPerPixel)
         self.setContextMenuPolicy(Qt.ContextMenuPolicy.CustomContextMenu)
 
@@ -218,6 +227,17 @@ class PhotoTimelineView(QTableView):
 
     def set_photos(self, photos: list[Resource]) -> None:
         self.timeline_model.set_photos(photos)
+
+    def set_tile(self, px: int) -> None:
+        """Новый размер плитки: границы, ширина колонок и их число; полную
+        раскладку (высоты строк) доделает следующий set_photos/reset."""
+        px = max(TILE_MIN, min(TILE_MAX, int(px)))
+        if px == self.tile:
+            return
+        self.tile = px
+        self.horizontalHeader().setDefaultSectionSize(px)
+        self.verticalHeader().setDefaultSectionSize(px)
+        self.timeline_model.set_columns(max(1, self.viewport().width() // px))
 
     def set_item_states(self, states: dict[str, str]) -> None:
         self._delegate.item_states = states
@@ -237,11 +257,11 @@ class PhotoTimelineView(QTableView):
                 self.setSpan(row, 0, 1, model.columnCount())
                 self.setRowHeight(row, HEADER_H)
             else:
-                self.setRowHeight(row, TILE)
+                self.setRowHeight(row, self.tile)
 
     def resizeEvent(self, event) -> None:  # noqa: N802 — Qt API
         super().resizeEvent(event)
-        cols = max(1, self.viewport().width() // TILE)
+        cols = max(1, self.viewport().width() // self.tile)
         self.timeline_model.set_columns(cols)
 
     # --- события --------------------------------------------------------------------

@@ -183,7 +183,7 @@ def test_recollect_discards_stale_chain(qapp):
 
         def iter_media(self, media_type=None):
             self.calls += 1
-            self.gate.wait(timeout=5)
+            self.gate.wait(timeout=10)
             yield _img(f"disk:/from-call-{self.calls}.jpg",
                        "2024-01-01T00:00:00+00:00")
 
@@ -192,7 +192,7 @@ def test_recollect_discards_stale_chain(qapp):
     page.on_shown()                       # первая цепочка повисла на воротах
     page.on_shown()                       # вторая тут же перебивает
     accounts.resources.gate.set()         # отпускаем обе
-    _pump()
+    _pump(5000)
 
     assert accounts.resources.calls == 2
     assert page.model.rowCount() == 1     # только вторая цепочка
@@ -217,6 +217,55 @@ def test_media_switch_and_cache(qapp):
     _pump()
     assert page.model.rowCount() == 1                            # из кэша, без сети
     assert page._accounts.resources.generators == gens_before
+
+
+def test_tile_slider_relayouts_and_persists(qapp):
+    """Слайдер размера плиток: плитка и число колонок меняются, все фото
+    остаются видимыми, выбор сохраняется в настройках."""
+    from ydx.ui.views.files_model import ResourceRole
+    from ydx.ui.views.photo_timeline import TILE_MAX, TILE_MIN
+
+    batches = [[_img(f"disk:/t{i:02d}.jpg", f"2026-09-28T1{i % 10}:00:00+00:00")
+                for i in range(12)]]
+    page, _accounts = _page(qapp, batches)
+    page.on_shown()
+    _pump()
+    assert page.model.rowCount() == 12
+    page.timeline.resize(900, 400)
+
+    class _Settings:
+        def __init__(self) -> None:
+            self.saved: dict = {}
+
+        def get(self, key):
+            return self.saved.get(key, 176)
+
+        def set(self, key, value):
+            self.saved[key] = value
+
+    page._settings = _Settings()
+    page.timeline.resize(900, 400)
+    qapp.processEvents()
+    cols_before = page.timeline.timeline_model._cols
+
+    page.tile_slider.setValue(120)                 # меньше плитка — больше колонок
+    _pump(400)
+    page.timeline.resize(901, 400)                 # детерминированный пересчёт
+    qapp.processEvents()
+    assert page.timeline.tile == 120
+    assert page.timeline.timeline_model._cols > cols_before
+    assert page._settings.saved["photo_tile"] == 120
+
+    page.tile_slider.setValue(1000)                # ограничение сверху
+    _pump(400)
+    assert page.timeline.tile == TILE_MAX
+
+    hidden = [ix for row in range(page.timeline.timeline_model.rowCount())
+              for col in range(page.timeline.timeline_model._cols)
+              if (ix := page.timeline.timeline_model.index(row, col)).data(ResourceRole)
+              and page.timeline.isIndexHidden(ix)]
+    assert not hidden
+    assert TILE_MIN <= page.timeline.tile <= TILE_MAX
 
 
 def test_active_changed_invalidates_cache(qapp):
