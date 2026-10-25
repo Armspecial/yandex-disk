@@ -29,13 +29,26 @@ def _pump(ms: int = 3000) -> None:
 
 
 class _StubApi:
-    def __init__(self, batches: list[list]) -> None:
+    def __init__(self, batches: list[list], revision: int = 7) -> None:
         self.batches = batches
+        self._rev = revision
+
+    def revision(self) -> int:
+        return self._rev
 
     def iter_media(self, media_type=None):
         if media_type != "video":
             for batch in self.batches:
                 yield from batch
+
+
+@pytest.fixture(autouse=True)
+def _cache_dir(tmp_path, monkeypatch):
+    """Дисковый кэш лент — во временный каталог, тесты не трогают ~/.cache."""
+    from ydx import constants as const
+
+    monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
+    return tmp_path
 
 
 class _StubAccounts:

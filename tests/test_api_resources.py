@@ -86,6 +86,14 @@ def test_list_public_total_fallback():
 
 
 @rsplib.activate
+def test_revision_from_disk_info():
+    """Ревизия Диска — дешёвая проверка «менялось ли» для кэша ленты."""
+    api = _api()
+    rsplib.add(rsplib.GET, f"{BASE}/", json={"revision": 1792905924987812, "total_space": 1})
+    assert api.revision() == 1792905924987812
+
+
+@rsplib.activate
 def test_iter_media_walks_tree_with_photostream_first():
     """Фото = автозагрузка (новыми вперёд) + обход дерева; дубли и чужой media_type
     отбрасываются, папка автозагрузки повторно не листается."""

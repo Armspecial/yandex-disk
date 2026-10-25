@@ -225,9 +225,8 @@ def test_iter_media_refreshes_expired_auto_cookies(qapp, store_dir, monkeypatch)
     service.adopt_browser_cookies()                    # источник — браузер (auto)
 
     class _FailingClient:
-        def iter_media(self, media_type=None):
+        def snapshot(self):
             raise UnlimAuthError("expired")
-            yield                                      # pragma: no cover — генератор
 
     service._client = _FailingClient()
     service._client_login = "u"
@@ -254,9 +253,8 @@ def test_iter_media_keeps_manual_cookies(qapp, store_dir, monkeypatch):
     service.save_cookies("Session_id=manual")
 
     class _FailingClient:
-        def iter_media(self, media_type=None):
+        def snapshot(self):
             raise UnlimAuthError("expired")
-            yield                                      # pragma: no cover
 
     service._client = _FailingClient()
     service._client_login = "u"
@@ -283,16 +281,29 @@ def _res(path: str, media: str = "image"):
 
 
 class _StubClient:
-    def __init__(self, items) -> None:
-        self.items = items
-        self.calls = 0
+    """Снапшот кластеров + точечная выдача; помнит, какие кластеры обходили."""
 
-    def iter_media(self, media_type=None):
-        self.calls += 1
-        yield from self.items
+    def __init__(self, items_by_cluster: dict[str, list]) -> None:
+        self.items_by_cluster = items_by_cluster
+        self.walked: list[str] = []
+
+    def snapshot(self):
+        clusters = [
+            {"id": cid, "size": len(items),
+             "albums": {"photounlim": len(items)}}
+            for cid, items in self.items_by_cluster.items()
+        ]
+        return "slice", clusters
+
+    def iter_cluster_media(self, slice_id, clusters, media_type=None):
+        for c in clusters:
+            self.walked.append(c["id"])
+            for r in self.items_by_cluster.get(c["id"], []):
+                yield c["id"], r
 
 
-def test_feed_cache_fresh_serves_without_network(qapp, store_dir, tmp_path, monkeypatch):
+def test_feed_cache_unchanged_no_rewalk(qapp, store_dir, tmp_path, monkeypatch):
+    """Открыли раздел: кэш показан, снапшот совпал — кластеры не перезабираются."""
     from ydx import constants as const
 
     monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
@@ -300,27 +311,30 @@ def test_feed_cache_fresh_serves_without_network(qapp, store_dir, tmp_path, monk
 
     accounts = _accounts(qapp, ["u"], "u")
     service = UnlimService(_StubSettings(), accounts)
-    client = _StubClient([_res("photounlim:/a.jpg"), _res("photounlim:/v.mp4", "video")])
+    client = _StubClient({
+        "c1": [_res("photounlim:/a.jpg")],
+        "c2": [_res("photounlim:/v.mp4", "video")],
+    })
     service._client = client
     service._client_login = "u"
 
-    first = list(service.iter_media("image"))          # кэша нет — живой обход
+    first = list(service.iter_media("image"))          # кэша нет — полный обход
     assert [r.path for r in first] == ["photounlim:/a.jpg"]
-    assert client.calls == 1
+    assert client.walked == ["c1", "c2"]
 
-    client.items = []                                  # «сеть умерла»
-    again = list(service.iter_media("image"))          # свежий кэш — без сети
+    client.walked.clear()
+    again = list(service.iter_media("image"))          # ничего не поменялось
     assert [r.path for r in again] == ["photounlim:/a.jpg"]
-    assert client.calls == 1                           # повторного обхода не было
+    assert client.walked == []                         # обхода не было
 
-    videos = list(service.iter_media("video"))         # и другой тип тоже из кэша
+    videos = list(service.iter_media("video"))         # другой тип — тоже из кэша
     assert [r.path for r in videos] == ["photounlim:/v.mp4"]
-    assert client.calls == 1
+    assert client.walked == []
 
 
-def test_feed_cache_stale_shows_then_refreshes(qapp, store_dir, tmp_path, monkeypatch):
-    import json
-
+def test_feed_cache_delta_rewalks_changed_cluster_only(qapp, store_dir, tmp_path, monkeypatch):
+    """Новые фото в одном кластере: кэш показан сразу, перезабирается только
+    изменившийся кластер, кэш обновляется."""
     from ydx import constants as const
 
     monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
@@ -328,24 +342,93 @@ def test_feed_cache_stale_shows_then_refreshes(qapp, store_dir, tmp_path, monkey
 
     accounts = _accounts(qapp, ["u"], "u")
     service = UnlimService(_StubSettings(), accounts)
-    cache = UnlimFeedCache("u")
-    cache.save([_res("photounlim:/old.jpg")])
+    client = _StubClient({
+        "c1": [_res("photounlim:/old.jpg")],
+        "c2": [_res("photounlim:/keep.jpg")],
+    })
+    service._client = client
+    service._client_login = "u"
+    list(service.iter_media())                         # прогрев кэша
 
-    path = tmp_path / "unlim_feed_u.json"              # сделать кэш устаревшим
-    data = json.loads(path.read_text("utf-8"))
-    data["saved_at"] = 0
-    path.write_text(json.dumps(data), "utf-8")
+    client.items_by_cluster["c1"].append(_res("photounlim:/new.jpg"))
+    client.walked.clear()
 
-    client = _StubClient([_res("photounlim:/old.jpg"), _res("photounlim:/new.jpg")])
+    out = list(service.iter_media())                   # c2 не трогаем
+    assert [r.path for r in out] == [
+        "photounlim:/old.jpg", "photounlim:/keep.jpg", "photounlim:/new.jpg"]
+    assert client.walked == ["c1"]
+
+    _stamp, clusters, entries = UnlimFeedCache("u").load_full()
+    assert clusters == {"c1": (2, 2), "c2": (1, 1)}
+    assert [r.path for _cid, r in entries] == [
+        "photounlim:/keep.jpg", "photounlim:/old.jpg", "photounlim:/new.jpg"]
+
+
+def test_feed_cache_removed_cluster_dropped(qapp, store_dir, tmp_path, monkeypatch):
+    """Кластер исчез со Диска — его фото не остаются в кэше навсегда."""
+    from ydx import constants as const
+
+    monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
+    from ydx.services.unlim import UnlimFeedCache, UnlimService
+
+    accounts = _accounts(qapp, ["u"], "u")
+    service = UnlimService(_StubSettings(), accounts)
+    client = _StubClient({
+        "c1": [_res("photounlim:/a.jpg")],
+        "gone": [_res("photounlim:/b.jpg")],
+    })
+    service._client = client
+    service._client_login = "u"
+    list(service.iter_media())
+
+    del client.items_by_cluster["gone"]
+    list(service.iter_media())
+
+    _stamp, _clusters, entries = UnlimFeedCache("u").load_full()
+    assert [r.path for _cid, r in entries] == ["photounlim:/a.jpg"]
+
+
+def test_feed_cache_old_format_full_rewalk(qapp, store_dir, tmp_path, monkeypatch):
+    """Кэш без кластеров (старый формат) — дельта невозможна, лента обходится
+    целиком и сохраняется в новом формате."""
+    import json
+
+    from ydx import constants as const
+
+    monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
+    from ydx.services.unlim import UnlimFeedCache, UnlimService, _resource_to_dict
+
+    accounts = _accounts(qapp, ["u"], "u")
+    service = UnlimService(_StubSettings(), accounts)
+    (tmp_path / "unlim_feed_u.json").write_text(json.dumps({
+        "saved_at": 1, "items": [_resource_to_dict(_res("photounlim:/legacy.jpg"))],
+    }, ensure_ascii=False), "utf-8")
+
+    client = _StubClient({"c1": [_res("photounlim:/a.jpg")]})
     service._client = client
     service._client_login = "u"
 
-    out = list(service.iter_media())
-    assert [r.path for r in out] == ["photounlim:/old.jpg", "photounlim:/new.jpg"]
-    assert client.calls == 1
+    out = list(service.iter_media())                   # legacy показан, затем обход
+    assert [r.path for r in out] == ["photounlim:/legacy.jpg", "photounlim:/a.jpg"]
+    assert client.walked == ["c1"]
 
-    saved_at, items = cache.load()                     # кэш обновился
-    assert saved_at > 0 and len(items) == 2
+    _stamp, clusters, _entries = UnlimFeedCache("u").load_full()
+    assert clusters == {"c1": (1, 1)}                  # новый формат сохранён
+
+
+def test_feed_cache_save_keeps_redates(qapp, store_dir, tmp_path, monkeypatch):
+    """Перезапись ленты не должна стирать сохранённые EXIF-даты."""
+    from ydx import constants as const
+
+    monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
+    from ydx.services.unlim import UnlimFeedCache
+
+    cache = UnlimFeedCache("u")
+    cache.save_redates({"disk:/Cam/rescued.jpg": "2026-10-07T15:53:40+00:00"})
+    cache.save([("c1", _res("photounlim:/a.jpg"))], {"c1": (1, 1)})
+
+    _stamp, redates = cache.load_redates()
+    assert redates == {"disk:/Cam/rescued.jpg": "2026-10-07T15:53:40+00:00"}
 
 
 def test_feed_cache_roundtrip_dates(qapp, store_dir, tmp_path, monkeypatch):
@@ -356,7 +439,7 @@ def test_feed_cache_roundtrip_dates(qapp, store_dir, tmp_path, monkeypatch):
 
     cache = UnlimFeedCache("u")
     item = _res("photounlim:/a.jpg")
-    cache.save([item])
+    cache.save([("c1", item)], {"c1": (1, 1)})
     _saved_at, loaded = cache.load()
     assert loaded[0].path == item.path
     assert loaded[0].modified == item.modified         # даты пережили JSON

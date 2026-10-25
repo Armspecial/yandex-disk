@@ -121,9 +121,9 @@ def test_full_sequence_maps_items():
                    _cluster("2025-05", 10, unlim=0),      # без безлимита — не берём
                ]}})
     rsplib.add(rsplib.POST, CLUSTERS_URL, json={"data": {"clusters": {"fetched": [
-        {"items": [_feed_item("/photounlim/IMG_0001.jpg"),
-                   _feed_item("/disk/a.jpg"),             # не photounlim — мимо
-                   _feed_item("/photounlim/VID_0002.mp4")]},
+        {"id": "2025-06", "items": [_feed_item("/photounlim/IMG_0001.jpg"),
+                                    _feed_item("/disk/a.jpg"),      # не photounlim — мимо
+                                    _feed_item("/photounlim/VID_0002.mp4")]},
     ]}}})
     rsplib.add(rsplib.POST, BULK_URL, json={"data": [
         _info("/photounlim/IMG_0001.jpg"),
@@ -351,7 +351,8 @@ def test_iter_media_filters_by_media_type():
     rsplib.add(rsplib.POST, f"{BASE}/models-v2?m=intapi/photo-get-snapshot",
                json={"data": {"items": [_cluster("c", 2, unlim=2)]}})
     rsplib.add(rsplib.POST, CLUSTERS_URL, json={"data": {"clusters": {"fetched": [
-        {"items": [_feed_item("/photounlim/IMG.jpg"), _feed_item("/photounlim/VID.mp4")]},
+        {"id": "c", "items": [_feed_item("/photounlim/IMG.jpg"),
+                              _feed_item("/photounlim/VID.mp4")]},
     ]}}})
     rsplib.add(rsplib.POST, BULK_URL, json={"data": [
         _info("/photounlim/IMG.jpg"), _info("/photounlim/VID.mp4")]})

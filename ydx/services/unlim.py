@@ -5,9 +5,9 @@
 TokenStore не используется: logout удаляет свои ключи целиком, а куки
 должны переживать перелогин того же аккаунта.
 
-Лента кэшируется в ~/.cache (обход — ~250 запросов с паузами, повторять
-при каждом старте жалко): свежий кэш отдаётся мгновенно без сети,
-устаревший — показывается сразу и обновляется фоном.
+Лента кэшируется в ~/.cache (полный обход — ~250 запросов с паузами):
+кэш показывается мгновенно, затем дешёвым снапшотом кластеров проверяется,
+менялось ли что-то, — перезабираются только изменившиеся кластеры.
 """
 
 from __future__ import annotations
@@ -28,7 +28,6 @@ from ydx.services.settings import AppSettings
 
 log = logging.getLogger(__name__)
 
-FEED_TTL = 12 * 3600                # сколько кэш ленты считается свежим
 REDATES_TTL = 7 * 24 * 3600         # EXIF-даты стабильнее — обновляем реже
 
 
@@ -37,6 +36,7 @@ def _resource_to_dict(r: Resource) -> dict:
         "name": r.name, "path": r.path, "size": r.size,
         "created": r.created.isoformat() if r.created else None,
         "modified": r.modified.isoformat() if r.modified else None,
+        "md5": r.md5,
         "mime_type": r.mime_type, "media_type": r.media_type,
         "preview": r.preview,
     }
@@ -55,28 +55,83 @@ def _resource_from_dict(d: dict) -> Resource:
         name=d.get("name") or "", type="file", path=d.get("path") or "",
         size=int(d.get("size") or 0),
         created=_dt(d.get("created")), modified=_dt(d.get("modified")),
-        mime_type=d.get("mime_type"), media_type=d.get("media_type"),
-        preview=d.get("preview"),
+        md5=d.get("md5"), mime_type=d.get("mime_type"),
+        media_type=d.get("media_type"), preview=d.get("preview"),
     )
 
 
+def _cluster_signature(cluster: dict) -> tuple[int, int]:
+    """Что считать содержимым кластера: (размер, счётчик безлимита)."""
+    albums = cluster.get("albums") or {}
+    return (int(cluster.get("size") or 0), int(albums.get("photounlim") or 0))
+
+
 class UnlimFeedCache:
-    """Лента одного логина в ~/.cache: {saved_at, items[]}. Секретов нет."""
+    """Лента одного логина в ~/.cache: {saved_at, clusters, items[]}.
+    items хранят кластер — перезабирать можно точечно, по кластерам."""
 
     def __init__(self, login: str) -> None:
         safe = re.sub(r"[^A-Za-z0-9_.-]", "_", login)[:60] or "anon"
         self._file = const.CACHE_DIR / f"unlim_feed_{safe}.json"
 
     def load(self) -> tuple[float, list[Resource]] | None:
+        """(saved_at, элементы без кластеров) — как раньше, для совместимости."""
+        full = self.load_full()
+        if full is None:
+            return None
+        saved_at, _clusters, entries = full
+        return saved_at, [r for _cid, r in entries]
+
+    def load_full(self) -> tuple[float, dict[str, tuple[int, int]] | None,
+                              list[tuple[str, Resource]]] | None:
+        """(saved_at, {id кластера: сигнатура}, [(кластер, ресурс)]).
+
+        clusters=None — кэш старого формата без кластеров: дельта невозможна,
+       caller должен обойти ленту целиком и перезаписать кэш.
+        """
         try:
             data = json.loads(self._file.read_text("utf-8"))
             saved_at = float(data.get("saved_at") or 0)
-            items = [_resource_from_dict(d) for d in data.get("items") or []]
+            raw_items = data.get("items") or []
+            entries = [
+                (str(d.get("cluster") or ""), _resource_from_dict(d))
+                for d in raw_items
+            ]
         except (OSError, ValueError, TypeError):
             return None
-        if not items:
+        if not entries:
             return None
-        return saved_at, items
+        raw_clusters = data.get("clusters")
+        if not isinstance(raw_clusters, dict) or not raw_clusters:
+            return saved_at, None, entries
+        clusters = {}
+        for cid, sig in raw_clusters.items():
+            if isinstance(sig, list) and len(sig) == 2:
+                clusters[str(cid)] = (int(sig[0]), int(sig[1]))
+        return saved_at, clusters, entries
+
+    def save(self, entries: list[tuple[str, Resource]],
+             clusters: dict[str, tuple[int, int]]) -> None:
+        """Перезаписать ленту, сохранив redates (файл общий)."""
+        data = self._read()
+        data["saved_at"] = time.time()
+        data["clusters"] = {cid: list(sig) for cid, sig in clusters.items()}
+        data["items"] = [
+            {"cluster": cid, **_resource_to_dict(r)} for cid, r in entries
+        ]
+        self._write(data)
+
+    def touch(self) -> None:
+        """Отметить кэш проверенным, не меняя содержимое."""
+        data = self._read()
+        data["saved_at"] = time.time()
+        self._write(data)
+
+    def _read(self) -> dict:
+        try:
+            return json.loads(self._file.read_text("utf-8"))
+        except (OSError, ValueError):
+            return {}
 
     def load_redates(self) -> tuple[float, dict[str, str]]:
         """({путь ресурса: ISO-дата}, timestamp обновления) — EXIF-даты REST-фото."""
@@ -89,16 +144,9 @@ class UnlimFeedCache:
         except (OSError, ValueError, TypeError):
             return 0.0, {}
 
-    def save(self, items: list[Resource]) -> None:
-        self._write({"saved_at": time.time(),
-                     "items": [_resource_to_dict(r) for r in items]})
-
     def save_redates(self, redates: dict[str, str]) -> None:
         """Дописать EXIF-даты, не трогая саму ленту (файл мог обновиться)."""
-        try:
-            data = json.loads(self._file.read_text("utf-8"))
-        except (OSError, ValueError):
-            data = {}
+        data = self._read()
         merged = dict(data.get("redates") or {})
         merged.update(redates)
         data["redates"] = merged
@@ -399,42 +447,52 @@ class UnlimService(QObject):
 
     def iter_media(self, media_type: str | None = None,
                    refresh: bool = False) -> Iterator[Resource]:
-        """Лента безлимита: свежий кэш — мгновенно и без сети; устаревший —
-        показать сразу и обновить фоном; отсутствует — обойти и сохранить."""
+        """Лента безлимита: кэш показывается мгновенно, затем снапшот кластеров
+        дёшево проверяет, менялось ли что-то. Изменившиеся кластеры (и только
+        они) перезабираются; полного обхода после первого запуска не бывает,
+        пока счётчики кластеров не дрогнули."""
         from ydx.core.errors import UnlimAuthError
 
         def wanted(r: Resource) -> bool:
             return media_type is None or r.media_type == media_type
 
         cache = UnlimFeedCache(self._active_login() or "anon")
-        cached = cache.load()
-        if cached is not None and not refresh and time.time() - cached[0] < FEED_TTL:
-            for r in cached[1]:
+        state = cache.load_full()             # (saved_at, кластеры, элементы)
+        seen: set[str] = set()
+        if state is not None:
+            for _cid, r in state[2]:
                 if wanted(r):
+                    seen.add(r.path)
                     yield r
-            return
 
         client = self.client
         if client is None:
-            if cached is not None:            # кук нет — покажем хоть кэш
-                for r in cached[1]:
-                    if wanted(r):
-                        yield r
-            return
+            return                            # кук нет — показали хоть кэш
 
-        seen: set[str] = set()
-        fresh: list[Resource] = []
         try:
-            if cached is not None:            # устаревший: мгновенно показать…
-                for r in cached[1]:
-                    if wanted(r):
-                        seen.add(r.path)
-                        yield r
-            for r in client.iter_media():     # …затем обновиться фоном
-                fresh.append(r)
+            slice_id, clusters = client.snapshot()
+            signature = {c["id"]: _cluster_signature(c) for c in clusters}
+            old = None if refresh else state[1] if state is not None else None
+            if old is not None and old == signature:
+                cache.touch()                 # ничего не поменялось — обход не нужен
+                return
+
+            if old is None:                   # кэша/старого формата нет — весь обход
+                todo = clusters
+                keep: list[tuple[str, Resource]] = []
+            else:
+                todo = [c for c in clusters if old.get(c["id"]) != signature[c["id"]]]
+                changed_ids = {c["id"] for c in todo}
+                live_ids = set(signature)
+                keep = [(cid, r) for cid, r in state[2]
+                        if cid not in changed_ids and cid in live_ids]
+
+            fresh: list[tuple[str, Resource]] = []
+            for cid, r in client.iter_cluster_media(slice_id, todo):
+                fresh.append((cid, r))
                 if r.path not in seen and wanted(r):
                     yield r
-            cache.save(fresh)
+            cache.save(keep + fresh, signature)
         except UnlimAuthError:
             # куки могли протухнуть: авто-источник обновится молча,
             # cookies_changed перезапустит сбор; иначе ошибка уйдёт наружу

@@ -268,8 +268,9 @@ class UnlimClient:
         _, clusters = self.snapshot()
         return sum(c["albums"]["photounlim"] for c in clusters)
 
-    def _cluster_items(self, slice_id: str, clusters: list[dict]) -> list[str]:
-        """Пути /photounlim/… из чанка кластеров (элементы там почти пустые)."""
+    def _cluster_paths(self, slice_id: str, clusters: list[dict]) -> dict[str, list[str]]:
+        """Пути /photounlim/… по кластерам: {id кластера: [пути]}. Элементы
+        отдаются почти пустыми (полные метаданные — bulk_info)."""
         params = {
             "photosliceId": slice_id,
             "clusters": {
@@ -281,13 +282,17 @@ class UnlimClient:
         data = self._call("intapi/photo-get-clusters-with-resources", params)
         fetched = ((data.get("clusters") or {}).get("fetched")
                    if isinstance(data, dict) else None) or []
-        paths: list[str] = []
+        out: dict[str, list[str]] = {}
         for cluster in fetched:
-            for item in cluster.get("items") or []:
-                item_id = item.get("id")
-                if isinstance(item_id, str) and item_id.startswith(_PHOTO_PREFIX):
-                    paths.append(item_id)
-        return paths
+            cid = cluster.get("id")
+            if not isinstance(cid, str):
+                continue
+            out[cid] = [
+                item.get("id") for item in cluster.get("items") or []
+                if isinstance(item.get("id"), str)
+                and item.get("id").startswith(_PHOTO_PREFIX)
+            ]
+        return out
 
     def bulk_info(self, paths: list[str]) -> dict[str, dict]:
         """Полные метаданные путей: {путь: ответ bulk-resource-info}."""
@@ -307,17 +312,26 @@ class UnlimClient:
 
     def iter_media(self, media_type: str | None = None) -> Iterator[Resource]:
         """Все элементы безлимита с датами/превью/ссылками, по image/video."""
-        slice_id, clusters = self.snapshot()
+        for _cid, resource in self.iter_cluster_media(None, None, media_type):
+            yield resource
+
+    def iter_cluster_media(
+        self, slice_id: str | None, clusters: list[dict] | None,
+        media_type: str | None = None,
+    ) -> Iterator[tuple[str, Resource]]:
+        """Элементы указанных кластеров: (id кластера, ресурс). Без списка —
+        вся лента (первичный обход); чанками по CLUSTER_CHUNK с паузами."""
+        if slice_id is None or clusters is None:
+            slice_id, clusters = self.snapshot()
         for start in range(0, len(clusters), CLUSTER_CHUNK):
             chunk = clusters[start:start + CLUSTER_CHUNK]
-            paths = self._cluster_items(slice_id, chunk)
-            infos = self.bulk_info(paths) if paths else {}
-            for path in paths:
-                resource = map_resource_info(infos.get(path) or {"id": path})
-                if (resource is not None
-                        and (media_type is None
-                             or resource.media_type == media_type)):
-                    yield resource
+            for cid, paths in self._cluster_paths(slice_id, chunk).items():
+                infos = self.bulk_info(paths) if paths else {}
+                for path in paths:
+                    resource = map_resource_info(infos.get(path) or {"id": path})
+                    if resource is not None and (media_type is None
+                                                 or resource.media_type == media_type):
+                        yield cid, resource
             if start + CLUSTER_CHUNK < len(clusters):
                 self._sleeper(random.uniform(*CHUNK_SLEEP))
 

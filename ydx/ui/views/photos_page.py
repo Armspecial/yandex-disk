@@ -277,17 +277,22 @@ class PhotosPage(QWidget):
     def _merged_iter(self, resources):
         """Лента: сначала весь Диск (REST), затем безлимит (внутреннее API).
 
-        REST-фото группируются по дате изменения, а сайт — по дате съёмки:
-        к перезалитым фото применяем EXIF-даты из кэша (дорабатывается фоном).
-        Ошибка безлимита не должна ронять REST-часть — запоминаем её
+        REST-часть лежит в дисковом кэше с ревизией Диска: лента показывается
+        мгновенно, ревизия не изменилась — обхода дерева нет; изменилась —
+        фоновый обход обновляет кэш, новые фото догружаются по ходу.
+        К перезалитым фото применяем EXIF-даты из кэша безлимита (дорабатывается
+        фоном). Ошибка безлимита не должна ронять REST-часть — запоминаем её
         для полосы состояния и заканчиваем выдачу.
         """
         from dataclasses import replace
 
         overrides = self._unlim.date_overrides() if self._unlim is not None else {}
-        for r in resources.iter_media(self._media):
+
+        def with_override(r):
             override = overrides.get(r.path)
-            yield replace(r, modified=override) if override is not None else r
+            return replace(r, modified=override) if override is not None else r
+
+        yield from self._rest_iter(resources, with_override)
         if (self._unlim is None or not self._unlim.enabled
                 or not self._unlim.has_cookies):
             return
@@ -295,6 +300,38 @@ class PhotosPage(QWidget):
             yield from self._unlim.iter_media(self._media)
         except Exception as exc:  # noqa: BLE001 — лента важнее
             self._unlim_error = exc
+
+    def _rest_iter(self, resources, with_override):
+        """REST-часть ленты: кэш мгновенно, затем проверка ревизии Диска;
+        полный обход — только когда ревизия изменилась (или кэша нет)."""
+        from ydx.services.photos_cache import RestFeedCache
+
+        active = getattr(self._accounts, "active", None)
+        login = getattr(active, "login", None) or "anon"
+        cache = RestFeedCache(login)
+        seen: set[str] = set()
+
+        cached = cache.load()
+        cached_rev = None
+        if cached is not None:
+            cached_rev, items = cached
+            for r in items:
+                if r.media_type == self._media and r.path not in seen:
+                    seen.add(r.path)
+                    yield with_override(r)
+
+        revision = resources.revision()
+        if cached_rev == revision:
+            return                    # Диск не менялся — обход не нужен
+
+        fresh: list = []
+        for r in resources.iter_media(None):     # одна ходка на фото и видео
+            if r.media_type in ("image", "video"):
+                fresh.append(r)
+            if r.path not in seen and r.media_type == self._media:
+                yield with_override(r)
+        if fresh:
+            cache.save(revision, fresh)
 
     def _maybe_refresh_dates(self) -> None:
         """Фоном уточнить даты съёмки REST-фото (батчи по 50, раз в неделю):

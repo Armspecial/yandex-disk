@@ -38,12 +38,27 @@ def _pump(ms: int = 3000) -> None:
         time.sleep(0.01)
 
 
+@pytest.fixture(autouse=True)
+def _cache_dir(tmp_path, monkeypatch):
+    """Дисковый кэш лент — во временный каталог, тесты не трогают ~/.cache."""
+    from ydx import constants as const
+
+    monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
+    return tmp_path
+
+
 class _StubApi:
     """iter_media отдаёт заданные партии; считает, сколько генераторов создано."""
 
-    def __init__(self, batches: list[list]) -> None:
+    def __init__(self, batches: list[list], revision: int = 7) -> None:
         self.batches = batches
         self.generators = 0
+        self._rev = revision
+        self.revision_calls = 0
+
+    def revision(self) -> int:
+        self.revision_calls += 1
+        return self._rev
 
     def iter_media(self, media_type=None):
         """Как настоящий: отдаёт ресурсы по одному; video-источник пуст."""
@@ -76,15 +91,19 @@ class _StubAccounts:
         return getattr(self._obj, name)
 
 
-def _page(qapp, batches):
+def _page_from(qapp, accounts):
+    """Страница «Фото» на готовом стабе аккаунтов."""
     from ydx.services import i18n
     from ydx.services.thumbs import ThumbService
     from ydx.ui.views.photos_page import PhotosPage
 
     i18n.load("ru")
-    accounts = _StubAccounts(_StubApi(batches))
     page = PhotosPage(accounts, ThumbService(lambda: None))
     return page, accounts._obj
+
+
+def _page(qapp, batches):
+    return _page_from(qapp, _StubAccounts(_StubApi(batches)))
 
 
 def test_collect_batches_and_default_sort(qapp):
@@ -148,18 +167,37 @@ def test_timeline_layout_by_days(qapp):
 
 
 def test_recollect_discards_stale_chain(qapp):
-    """Повторный on_shown до завершения первого сбора: старая цепочка отбрасывается."""
-    batches = [
-        [_img("disk:/a.jpg", "2024-01-01T00:00:00+00:00")],
-    ]
-    page, accounts = _page(qapp, batches)
-    page.on_shown()
-    page.on_shown()          # второй сбор тут же перебивает первый
+    """Повторный on_shown до завершения первого сбора: старая цепочка
+    отбрасывается — в модели остаются только элементы второй."""
+    import threading
+
+    class _SlowApi:
+        """Обход висит на «воротах»; каждая цепочка отдаёт свой файл."""
+
+        def __init__(self) -> None:
+            self.gate = threading.Event()
+            self.calls = 0
+
+        def revision(self) -> int:
+            return 7
+
+        def iter_media(self, media_type=None):
+            self.calls += 1
+            self.gate.wait(timeout=5)
+            yield _img(f"disk:/from-call-{self.calls}.jpg",
+                       "2024-01-01T00:00:00+00:00")
+
+    accounts = _StubAccounts(_SlowApi())
+    page, _acc = _page_from(qapp, accounts)
+    page.on_shown()                       # первая цепочка повисла на воротах
+    page.on_shown()                       # вторая тут же перебивает
+    accounts.resources.gate.set()         # отпускаем обе
     _pump()
 
-    assert accounts.resources.generators == 2
-    assert page.model.rowCount() == 1                            # только вторая цепочка
-    assert page._collected["image"]                              # закэшировано
+    assert accounts.resources.calls == 2
+    assert page.model.rowCount() == 1     # только вторая цепочка
+    assert page.model.items[0].path == "disk:/from-call-2.jpg"
+    assert page._collected["image"]       # завершённая цепочка закэширована
 
 
 def test_media_switch_and_cache(qapp):
@@ -193,7 +231,37 @@ def test_active_changed_invalidates_cache(qapp):
 
     page.on_shown()
     _pump()
-    assert accounts.resources.generators == 2                    # сбор пошёл заново
+    assert page.model.rowCount() == 1                            # лента пересобрана
+    assert accounts.resources.generators == 1                    # из дискового кэша
+
+
+def test_rest_feed_cache_served_without_rewalk(qapp):
+    """Повторное открытие: REST-лента мгновенно из дискового кэша; ревизия
+    Диска не менялась — обхода дерева нет; изменилась — обход и обновление."""
+    batches = [[_img("disk:/Camera Uploads/a.jpg", "2026-10-01T10:00:00+00:00"),
+                _img("disk:/Camera Uploads/b.jpg", "2026-10-02T10:00:00+00:00")]]
+    page, _accounts = _page(qapp, batches)
+    page.on_shown()
+    _pump()
+    assert page.model.rowCount() == 2
+    assert page._accounts.resources.generators == 1       # был полный обход
+
+    page2, _acc2 = _page(qapp, [])                        # «перезапуск» приложения
+    page2.on_shown()
+    _pump()
+    assert page2.model.rowCount() == 2                    # мгновенно из кэша
+    assert page2._accounts.resources.generators == 0      # обхода не было
+    assert page2._accounts.resources.revision_calls == 1  # только проверка ревизии
+
+    api = page2._accounts.resources
+    api._rev = 8                                          # на Диске что-то поменялось
+    api.batches = [[_img("disk:/Camera Uploads/a.jpg", "2026-10-01T10:00:00+00:00"),
+                    _img("disk:/Camera Uploads/c.jpg", "2026-10-03T10:00:00+00:00")]]
+    page2._collected.clear()
+    page2.on_shown()
+    _pump()
+    assert page2.model.rowCount() == 3                    # a, b из кэша + c из обхода
+    assert api.generators == 1
 
 
 def test_timeline_rebuild_keeps_all_photos_visible(qapp):

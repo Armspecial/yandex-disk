@@ -42,6 +42,11 @@ class ResourcesApi:
         )
         return quota, d.get("system_folders") or {}
 
+    def revision(self) -> int:
+        """Ревизия Диска: растёт при любом изменении файлов — дешёвая
+        проверка «менялось ли что-то» вместо полного обхода дерева."""
+        return int(self.api.get("/").get("revision") or 0)
+
     def get(self, path: str, **params: Any) -> Resource:
         d = self.api.get("/resources", path=path, **params)
         return Resource.from_api(d)
