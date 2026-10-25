@@ -368,25 +368,24 @@ class UnlimClient:
     def delete_resources(self, paths: list[str]) -> list[str]:
         """Удалить элементы безлимита в корзину (mpfs/bulk-async-delete).
 
-        Операции асинхронные: сервер принимает пачки [{src: …}] (≤40, как
-        у bulk-async-move) и отвечает списком операций с oids. Возвращает
-        пути, принятые сервером; сбой — UnlimError. Удалённое восстановимо
-        из корзины (mpfs/bulk-async-restore — парный метод).
+        Операции идут в обёртке {"operations": [{src: …}]} пачками ≤40 —
+        простой список сервер отвергает (500 UNKNOWN_ERROR, проверено
+        живьём). Ответ — список операций [{oid, type: "trash", …}] без echo
+        путей: сколько строк пришло, столько путей и считаем принятыми.
+        Удалённое восстановимо из корзины (mpfs/bulk-async-restore).
         """
         accepted: list[str] = []
         for start in range(0, len(paths), DELETE_BATCH):
             batch = paths[start:start + DELETE_BATCH]
             data = self._call("mpfs/bulk-async-delete",
-                              [{"src": p} for p in batch])
+                              {"operations": [{"src": p} for p in batch]})
             rows = data if isinstance(data, list) else (
                 (data.get("data") or data.get("items") or [])
                 if isinstance(data, dict) else [])
-            got = {
-                str((row.get("operation") or {}).get("src"))
-                for row in rows if isinstance(row, dict)
-            }
-            # ответ не echo-ит пути — верим приёму всей пачки (HTTP 200 без error)
-            accepted.extend(p for p in batch if not got or p in got)
+            if rows:
+                accepted.extend(batch[:len(rows)])
+            else:
+                accepted.extend(batch)   # 200 без ошибок — пачка принята
             if start + DELETE_BATCH < len(paths):
                 self._sleeper(0.3)
         return accepted

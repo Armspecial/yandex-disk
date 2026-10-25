@@ -402,8 +402,9 @@ def test_download_links_fallback_for_video():
 # --- удаление в корзину -------------------------------------------------------
 
 
-def test_delete_resources_batches_and_echo(monkeypatch):
-    """bulk-async-delete: пачки ≤40, payload [{src}], echo-ответ парсится."""
+def test_delete_resources_batches_and_operations(monkeypatch):
+    """bulk-async-delete: пачки ≤40, обёртка {"operations": [{src}]};
+    ответ — строки {oid, type} без путей: считаем по количеству."""
     from ydx.core.unlim_api import DELETE_BATCH, UnlimClient
 
     client = UnlimClient.__new__(UnlimClient)      # без сети
@@ -411,8 +412,8 @@ def test_delete_resources_batches_and_echo(monkeypatch):
 
     def fake_call(method, params=None, **_k):
         calls.append((method, params))
-        return [{"oid": f"o{i}", "operation": {"src": op["src"]}}
-                for i, op in enumerate(params or [])]
+        ops = (params or {}).get("operations") or []
+        return [{"oid": f"o{i}", "type": "trash"} for i in range(len(ops))]
 
     monkeypatch.setattr(client, "_call", fake_call)
     client._sleeper = lambda _s: None      # __new__: атрибута ещё нет
@@ -422,9 +423,9 @@ def test_delete_resources_batches_and_echo(monkeypatch):
     accepted = client.delete_resources(paths)
 
     assert [m for m, _p in calls] == ["mpfs/bulk-async-delete"] * 2
-    assert calls[0][1] == [{"src": p} for p in paths[:40]]
-    assert len(calls[1][1]) == 5
-    assert accepted == paths                       # echo вернул все пути
+    assert calls[0][1] == {"operations": [{"src": p} for p in paths[:40]]}
+    assert len(calls[1][1]["operations"]) == 5
+    assert accepted == paths
 
 
 def test_delete_resources_without_echo_accepts_batch(monkeypatch):
