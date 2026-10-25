@@ -268,6 +268,39 @@ def test_tile_slider_relayouts_and_persists(qapp):
     assert TILE_MIN <= page.timeline.tile <= TILE_MAX
 
 
+def test_open_photo_single_viewer_at_a_time(qapp, monkeypatch):
+    """Пока просмотрщик открыт, повторные клики не плодят новые окна."""
+    from PySide6.QtWidgets import QDialog
+
+    import ydx.ui.views.photos_page as pp
+
+    created = []
+
+    class _Fake(QDialog):
+        def __init__(self, *a, **k):
+            super().__init__()
+            created.append(self)
+            self.exec = lambda: None          # без модального цикла в тесте
+
+    monkeypatch.setattr(pp, "PhotoViewer", _Fake)
+    monkeypatch.setattr(pp, "VideoViewer", _Fake)
+    page, _accounts = _page(qapp, [])
+    page.on_shown()
+    _pump()
+    item = _img("disk:/a.jpg", "2024-01-01T00:00:00+00:00")
+    page.model.set_items([item])
+
+    page._open_photo(item)
+    assert len(created) == 1 and page._viewer_open
+    page._open_photo(item)                    # второй клик — мимо
+    assert len(created) == 1
+
+    created[0].finished.emit(0)               # просмотрщик закрылся
+    assert not page._viewer_open
+    page._open_photo(item)
+    assert len(created) == 2
+
+
 def test_active_changed_invalidates_cache(qapp):
     batches = [[_img("disk:/i.jpg", "2024-01-01T00:00:00+00:00")]]
     page, accounts = _page(qapp, batches)

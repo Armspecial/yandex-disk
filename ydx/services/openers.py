@@ -27,7 +27,24 @@ def cache_path(resource: Resource) -> Path:
     return OPEN_CACHE_DIR / f"{thumb_key(resource)}-{_safe_name(resource.name)}"
 
 
-def _download(resources: ResourcesApi, resource: Resource, target: Path) -> Path:
+def _stream_to_file(resp, target: Path, progress=None) -> Path:
+    """Ответ со stream=True → файл; progress(байт_скачано, всего_из_Content-Length)."""
+    total = int(resp.headers.get("Content-Length") or 0)
+    tmp = target.with_suffix(target.suffix + ".part")
+    done = 0
+    with open(tmp, "wb") as fh:
+        for chunk in resp.iter_content(chunk_size=256 * 1024):
+            if chunk:
+                fh.write(chunk)
+                done += len(chunk)
+                if progress is not None:
+                    progress(done, total)
+    tmp.replace(target)
+    return target
+
+
+def _download(resources: ResourcesApi, resource: Resource, target: Path,
+              progress=None) -> Path:
     if target.exists() and target.stat().st_size == resource.size:
         return target          # уже в кэше
     target.parent.mkdir(parents=True, exist_ok=True)
@@ -36,13 +53,7 @@ def _download(resources: ResourcesApi, resource: Resource, target: Path) -> Path
     resp = api.raw_get(href, with_auth=True, stream=True, timeout=300)
     if resp.status_code != 200:
         raise RuntimeError(f"download failed: {resp.status_code}")
-    tmp = target.with_suffix(target.suffix + ".part")
-    with open(tmp, "wb") as fh:
-        for chunk in resp.iter_content(chunk_size=256 * 1024):
-            if chunk:
-                fh.write(chunk)
-    tmp.replace(target)
-    return target
+    return _stream_to_file(resp, target, progress)
 
 
 def open_resource(
@@ -66,14 +77,15 @@ def open_resource(
     )
 
 
-def unlim_download(unlim, resources: list[Resource], target_dir: Path) -> dict:
+def unlim_download(unlim, resources: list[Resource], target_dir: Path,
+                   progress=None) -> dict:
     """Скачать элементы безлимита по прямым ссылкам (кукисессией).
 
     Ссылки короткоживущие — перед скачиванием берём свежий пакет
     (один bulk-запрос на всю выборку). Блокирующая — вызывающий обязан
-    запустить в потоке. Возвращает {"done", "skipped", "names"}: без
-    ссылки (видео пока) элемент пропускается, ошибки сети тоже уводят
-    в skipped, не роняя пачку.
+    запустить в потоке. progress(путь, скачано, всего) — для просмотрщика.
+    Возвращает {"done", "skipped", "names"}: без ссылки (видео пока)
+    элемент пропускается, ошибки сети тоже уводят в skipped, не роняя пачку.
     """
     done = 0
     skipped: list[str] = []
@@ -90,12 +102,8 @@ def unlim_download(unlim, resources: list[Resource], target_dir: Path) -> dict:
             if resp.status_code != 200:
                 skipped.append(resource.name)
                 continue
-            tmp = target.with_suffix(target.suffix + ".part")
-            with open(tmp, "wb") as fh:
-                for chunk in resp.iter_content(chunk_size=256 * 1024):
-                    if chunk:
-                        fh.write(chunk)
-            tmp.replace(target)
+            _stream_to_file(resp, target, lambda d, t, _r=resource:
+                            progress(_r.path, d, t) if progress else None)
             done += 1
         except Exception:                                  # noqa: BLE001 — пачка важнее
             skipped.append(resource.name)

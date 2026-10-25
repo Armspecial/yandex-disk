@@ -203,6 +203,7 @@
   "sync.choose_folder": "Choose the sync folder",
   "tray.hidden_toast": "The app is hidden to tray. Quit via the tray icon menu.",
   "viewer.loading_video": "Downloading video for playback…",
+  "viewer.progress": "Downloaded {done} of {total}",
   "viewer.video_error": "Could not play the video",
   "viewer.play": "Play",
   "viewer.pause": "Pause",

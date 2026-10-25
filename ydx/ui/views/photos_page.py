@@ -70,6 +70,7 @@ class PhotosPage(QWidget):
         self._media = "image"           # image | video — переключатель в шапке
         self._collected: dict[str, list[Resource]] = {}   # кэш сессии по типу медиа
         self._collect_id = 0            # инкремент рвёт идущий сбор (смена источника)
+        self._viewer_open = False       # один просмотрщик за раз (не плодим модальные)
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
@@ -579,21 +580,30 @@ class PhotosPage(QWidget):
     # --- просмотр --------------------------------------------------------------------
 
     def _open_photo(self, resource: Resource) -> None:
+        if self._viewer_open:
+            return                     # просмотрщик открыт — новых не плодим
         items = (
             self.album_photos_model.items if self._mode == "album"
             else self.model.items
         )
         if viewer_kind(resource) == "video":
             unlim = self._unlim if resource.path.startswith("photounlim:") else None
-            VideoViewer(resource, items, self, unlim=unlim).exec()
-            return
-        index = 0
-        for i, r in enumerate(items):
-            if r.path == resource.path:
-                index = i
-                break
-        viewer = PhotoViewer(items, index, self._thumbs, self)
+            viewer = VideoViewer(resource, items, self, unlim=unlim)
+        else:
+            index = 0
+            for i, r in enumerate(items):
+                if r.path == resource.path:
+                    index = i
+                    break
+            viewer = PhotoViewer(items, index, self._thumbs, self,
+                                 resources_api=self._accounts.resources,
+                                 unlim=self._unlim)
+        self._viewer_open = True
+        viewer.finished.connect(self._viewer_closed)
         viewer.exec()
+
+    def _viewer_closed(self) -> None:
+        self._viewer_open = False
 
     def _context_menu(self, global_pos, resources: list[Resource]) -> None:
         if not resources or self._mode == "albums":

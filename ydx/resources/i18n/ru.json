@@ -203,6 +203,7 @@
   "sync.choose_folder": "Выберите папку синхронизации",
   "tray.hidden_toast": "Приложение свернуто в трей. Полный выход — через меню иконки.",
   "viewer.loading_video": "Скачиваю видео для просмотра…",
+  "viewer.progress": "Скачано {done} из {total}",
   "viewer.video_error": "Не удалось воспроизвести видео",
   "viewer.play": "Воспроизвести",
   "viewer.pause": "Пауза",

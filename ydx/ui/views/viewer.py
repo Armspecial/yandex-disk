@@ -1,11 +1,17 @@
 """Встроенные просмотрщики: фото (полный экран) и видео (QMediaPlayer).
 
+Фото показывается сразу миниатюрой, затем фоном качается оригинал с
+прогрессом «скачано X из Y»; видео скачивается с тем же прогрессом и
+играет сразу по готовности. Плеер создаётся лениво — только когда есть
+что играть: двойной клик по файлу без ссылки не инициализирует
+мультимедиа-стек вовсе.
+
 viewer_kind() решает, чем открывать ресурс; всё остальное — через xdg-open.
 """
 
 from __future__ import annotations
 
-from PySide6.QtCore import Qt
+from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QColor, QFont, QPainter, QPixmap
 from PySide6.QtWidgets import QDialog
 
@@ -23,8 +29,23 @@ def viewer_kind(resource: Resource) -> str:
     return "external"
 
 
+def _progress_text(done: int, total: int) -> str:
+    from ydx.services import i18n
+    from ydx.services.fmt import human_size
+
+    if total:
+        return i18n.tr("viewer.progress",
+                       done=human_size(done), total=human_size(total))
+    return human_size(done)
+
+
 class PhotoViewer(QDialog):
-    def __init__(self, resources: list[Resource], index: int, thumbs: ThumbService, parent=None) -> None:
+    """Полноэкранный просмотр фото: сразу миниатюра, фоном — оригинал."""
+
+    _progress_updated = Signal(int, int, int)   # поколение, скачано, всего
+
+    def __init__(self, resources: list[Resource], index: int, thumbs: ThumbService,
+                 parent=None, resources_api=None, unlim=None) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
         self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
@@ -34,8 +55,13 @@ class PhotoViewer(QDialog):
         self._resources = resources
         self._index = index
         self._thumbs = thumbs
-        self._pixmap: QPixmap | None = None
-
+        self._api = resources_api
+        self._unlim = unlim
+        self._pixmap: QPixmap | None = None        # миниатюра (сразу)
+        self._full: QPixmap | None = None          # оригинал (когда скачан)
+        self._gen = 0                              # поколение загрузки (навигация)
+        self._progress: tuple[int, int] | None = None
+        self._progress_updated.connect(self._set_progress)
         thumbs.ready.connect(self._on_thumb_ready)
         self._load()
 
@@ -48,6 +74,9 @@ class PhotoViewer(QDialog):
 
     def _load(self) -> None:
         self._pixmap = None
+        self._full = None
+        self._progress = None
+        self._gen += 1
         resource = self._current()
         if resource is None:
             self.update()
@@ -55,16 +84,71 @@ class PhotoViewer(QDialog):
         pm = self._thumbs.pixmap(resource, 1280)
         if pm is not None:
             self._pixmap = pm
-            self.update()
+        self._load_full(resource)
+        self.update()
         # предзагрузка соседей
         for delta in (-1, 1):
             neighbor = self._index + delta
             if 0 <= neighbor < len(self._resources):
                 self._thumbs.pixmap(self._resources[neighbor], 1280)
 
+    def _load_full(self, resource: Resource) -> None:
+        """Оригинал в кэш (если ещё нет) с прогрессом, затем показать."""
+        from ydx.services import openers
+        from ydx.services.workers import run_in_thread
+
+        target = openers.cache_path(resource)
+        gen = self._gen
+        if target.exists():
+            self._show_full(str(target), gen)
+            return
+        if resource.path.startswith("photounlim:") and self._unlim is not None:
+            job = self._download_unlim_original(resource, target, gen)
+        elif resource.path.startswith("disk:/") and self._api is not None:
+            job = lambda: openers._download(   # noqa: E731 — замыкание для потока
+                self._api, resource, target,
+                lambda done, total: self._progress_updated.emit(gen, done, total))
+        else:
+            return
+        run_in_thread(job,
+                      lambda path: self._show_full(path, gen),
+                      lambda _exc: None)
+
+    def _download_unlim_original(self, resource: Resource, target, gen):
+        from ydx.services import openers
+
+        def job():
+            links = self._unlim.download_links([resource])
+            url = links.get(resource.path) or resource.file_url
+            if not url:
+                return None
+            resp = self._unlim.fetch(url, stream=True)
+            if resp.status_code != 200:
+                return None
+            return openers._stream_to_file(
+                resp, target,
+                lambda done, total: self._progress_updated.emit(gen, done, total))
+
+        return job
+
+    def _show_full(self, path, gen: int) -> None:
+        if gen != self._gen or not self.isVisible():
+            return
+        pm = QPixmap(str(path))
+        if not pm.isNull():
+            self._full = pm
+            self._progress = None
+            self.update()
+
+    def _set_progress(self, gen: int, done: int, total: int) -> None:
+        if gen != self._gen:
+            return
+        self._progress = (done, total)
+        self.update()
+
     def _on_thumb_ready(self, key: str) -> None:
         resource = self._current()
-        if resource is not None:
+        if resource is not None and self._full is None:
             from ydx.services.thumbs import thumb_key
 
             if key == thumb_key(resource):
@@ -114,40 +198,50 @@ class PhotoViewer(QDialog):
     def paintEvent(self, event) -> None:  # noqa: N802 — Qt API
         painter = QPainter(self)
         painter.fillRect(self.rect(), QColor("#101012"))
-        if self._pixmap is None:
+        source = self._full or self._pixmap
+        if source is None:
             painter.setPen(QColor("#8A8D94"))
             font = QFont()
             font.setPixelSize(18)
             painter.setFont(font)
             painter.drawText(self.rect(), Qt.AlignmentFlag.AlignCenter, "…")
-            painter.end()
-            return
-        scaled = self._pixmap.scaled(
-            self.width() - 40, self.height() - 40,
-            Qt.AspectRatioMode.KeepAspectRatio,
-            Qt.TransformationMode.SmoothTransformation,
-        )
-        x = (self.width() - scaled.width()) // 2
-        y = (self.height() - scaled.height()) // 2
-        painter.drawPixmap(x, y, scaled)
+        else:
+            scaled = source.scaled(
+                self.width() - 40, self.height() - 40,
+                Qt.AspectRatioMode.KeepAspectRatio,
+                Qt.TransformationMode.SmoothTransformation,
+            )
+            x = (self.width() - scaled.width()) // 2
+            y = (self.height() - scaled.height()) // 2
+            painter.drawPixmap(x, y, scaled)
+        painter.setPen(QColor("#D6D7DB"))
+        counter_font = QFont()
+        counter_font.setPixelSize(14)
+        painter.setFont(counter_font)
         resource = self._current()
+        bottom = self.height() - 24
         if resource is not None:
-            painter.setPen(QColor("#D6D7DB"))
-            counter_font = QFont()
-            counter_font.setPixelSize(14)
-            painter.setFont(counter_font)
             painter.drawText(
-                20, self.height() - 24,
+                20, bottom,
                 f"{self._index + 1} / {len(self._resources)}   {resource.name}",
+            )
+        if self._progress is not None:
+            painter.drawText(
+                self.width() - 20, bottom, Qt.AlignmentFlag.AlignRight,
+                _progress_text(*self._progress),
             )
         painter.end()
 
 
 class VideoViewer(QDialog):
-    """Видео прямо в приложении: скачивание в кэш → QMediaPlayer.
+    """Видео прямо в приложении: скачивание в кэш с прогрессом → QMediaPlayer.
 
+    Плеер создаётся лениво — только когда появляется играбельный источник:
+    клик по файлу без playable-ссылки не трогает мультимедиа-стек вовсе.
     Управление: клик/Space — пауза, ←/→ — ±10 с, Esc — выход.
     """
+
+    _progress_updated = Signal(int, int)      # скачано, всего
 
     def __init__(
         self, resource: Resource, resources_api, parent=None, unlim=None,
@@ -162,31 +256,53 @@ class VideoViewer(QDialog):
         self._unlim = unlim
         self._stream_url: str | None = None      # играем по прямой ссылке (безлимит)
         self._stream_fallback_done = False
+        self.player = None                        # лениво: см. _ensure_player
+        self._progress_updated.connect(self._set_progress)
 
-        from PySide6.QtWidgets import QVBoxLayout, QLabel, QHBoxLayout, QPushButton, QSlider
+        from PySide6.QtWidgets import QLabel, QVBoxLayout
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
         col.setSpacing(0)
+        self.status_label = QLabel()
+        self.status_label.setStyleSheet("color:#D6D7DB; font-size:18px;")
+        self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
+        col.addWidget(self.status_label, 1)
 
-        self.video_widget = None
+        if resource.path.startswith("photounlim:"):
+            # безлимит: стрим по прямой ссылке, фолбэк — скачать кукисессией
+            from ydx.services import i18n
+
+            if resource.file_url:
+                self._play_url(resource.file_url)
+            else:
+                self._set_status(i18n.tr("unlim.no_link"), error=True)
+        else:
+            self._start_download()
+
+    # --- плеер (лениво) -----------------------------------------------------------
+
+    def _ensure_player(self) -> bool:
+        """QVideoWidget + QMediaPlayer + панель управления; False — мультимедиа нет."""
+        if self.player is not None:
+            return True
         try:
             from PySide6.QtMultimedia import QAudioOutput, QMediaPlayer
             from PySide6.QtMultimediaWidgets import QVideoWidget
-
-            self.video_widget = QVideoWidget()
-            col.addWidget(self.video_widget, 1)
-            self.player = QMediaPlayer(self)
-            self.audio = QAudioOutput(self)
-            self.player.setVideoOutput(self.video_widget)
-            self.player.setAudioOutput(self.audio)
-            self.player.errorOccurred.connect(lambda _e, msg, _s="": self._on_error(msg))
-        except Exception:   # noqa: BLE001 — нет мультимедиа → откажемся в конструкторе
+            from PySide6.QtWidgets import QHBoxLayout, QLabel, QPushButton, QSlider, QWidget
+        except Exception:   # noqa: BLE001 — нет мультимедиа → системный плеер
             self._fatal_fallback()
-            return
+            return False
 
-        # нижняя панель управления
-        from PySide6.QtWidgets import QWidget
+        self.status_label.hide()
+        self.video_widget = QVideoWidget()
+        self.layout().insertWidget(0, self.video_widget, 1)
+        self.player = QMediaPlayer(self)
+        self.audio = QAudioOutput(self)
+        self.player.setVideoOutput(self.video_widget)
+        self.player.setAudioOutput(self.audio)
+        self.player.errorOccurred.connect(
+            lambda _e, msg, _s="": self._on_error(msg))
 
         bar = QWidget(self)
         bar.setStyleSheet("background-color: rgba(16,16,18,0.85);")
@@ -209,24 +325,8 @@ class VideoViewer(QDialog):
         row.addWidget(self.slider, 1)
         row.addWidget(self.time_label)
         row.addWidget(self.error_label)
-        col.addWidget(bar)
-
-        self.loading_label = QLabel()
-        self.loading_label.setStyleSheet("color:#D6D7DB; font-size:16px;")
-        self.loading_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
-        self.loading_label.setGeometry(0, 0, 10, 10)
-        self.loading_label.setParent(self)
-
-        if resource.path.startswith("photounlim:"):
-            # безлимит: стрим по прямой ссылке, фолбэк — скачать кукисессией
-            from ydx.services import i18n
-
-            if resource.file_url:
-                self._play_url(resource.file_url)
-            else:
-                self._on_error(i18n.tr("unlim.no_link"))
-        else:
-            self._start_download()
+        self.layout().addWidget(bar)
+        return True
 
     # --- загрузка и воспроизведение --------------------------------------------
 
@@ -234,6 +334,8 @@ class VideoViewer(QDialog):
         """Воспроизвести по прямой ссылке (безлимитное видео)."""
         from PySide6.QtCore import QUrl
 
+        if not self._ensure_player():
+            return
         self._stream_url = url
         self.player.setSource(QUrl(url))
         self.player.play()
@@ -244,10 +346,13 @@ class VideoViewer(QDialog):
         from ydx.services import i18n, openers
         from ydx.services.workers import run_in_thread
 
-        self._show_loading(True)
+        self._set_status(i18n.tr("viewer.loading_video"))
 
         def job() -> dict:
-            return openers.unlim_download(self._unlim, [self._resource], OPEN_CACHE_DIR)
+            return openers.unlim_download(
+                self._unlim, [self._resource], OPEN_CACHE_DIR,
+                progress=lambda _path, done, total:
+                    self._progress_updated.emit(done, total))
 
         def done(result: dict) -> None:
             if result["done"]:
@@ -258,13 +363,15 @@ class VideoViewer(QDialog):
         run_in_thread(job, done, lambda exc: self._on_error(str(exc)))
 
     def _start_download(self) -> None:
-        from ydx.services import openers
+        from ydx.services import i18n, openers
         from ydx.services.workers import run_in_thread
 
-        self._show_loading(True)
+        self._set_status(i18n.tr("viewer.loading_video"))
 
         def job():
-            return openers._download(self._api, self._resource, openers.cache_path(self._resource))
+            return openers._download(
+                self._api, self._resource, openers.cache_path(self._resource),
+                lambda done, total: self._progress_updated.emit(done, total))
 
         run_in_thread(
             job,
@@ -273,25 +380,28 @@ class VideoViewer(QDialog):
         )
 
     def _play_file(self, path) -> None:
-        if not self.isVisible():
+        if not self.isVisible() or not self._ensure_player():
             return
-        self._show_loading(False)
         from PySide6.QtCore import QUrl
 
+        self.status_label.hide()
         self.player.setSource(QUrl.fromLocalFile(str(path)))
         self.player.play()
 
-    def _show_loading(self, on: bool) -> None:
-        from ydx.services import i18n
+    def _set_status(self, text: str, error: bool = False) -> None:
+        self.status_label.setText(text)
+        self.status_label.setStyleSheet(
+            "color:#FF7A5C; font-size:18px;" if error else "color:#D6D7DB; font-size:18px;")
+        if self.player is None:
+            self.status_label.show()
+        elif error:
+            from ydx.services import i18n
 
-        if on:
-            self.loading_label.setText(i18n.tr("viewer.loading_video"))
-            self.loading_label.adjustSize()
-            self.loading_label.move(
-                (self.width() - self.loading_label.width()) // 2,
-                (self.height() - self.loading_label.height()) // 2,
-            )
-        self.loading_label.setVisible(on)
+            self.error_label.setText(text)
+            self.error_label.show()
+
+    def _set_progress(self, done: int, total: int) -> None:
+        self._set_status(_progress_text(done, total))
 
     def _on_duration(self, ms: int) -> None:
         self.slider.setRange(0, max(ms, 1))
@@ -308,6 +418,8 @@ class VideoViewer(QDialog):
         return f"{sec // 60}:{sec % 60:02d}"
 
     def _toggle_play(self) -> None:
+        if self.player is None:
+            return
         if self.player.playbackState() == self.player.PlaybackState.PlayingState:
             self.player.pause()
             self.play_btn.setText("▶")
@@ -323,9 +435,8 @@ class VideoViewer(QDialog):
             self._stream_fallback_done = True
             self._start_unlim_download()      # стрим не пошёл — скачаем кукисессией
             return
-        self._show_loading(False)
-        self.error_label.setText(i18n.tr("viewer.video_error") + f" ({message[:80]})")
-        self.error_label.show()
+        self._set_status(i18n.tr("viewer.video_error") + f" ({message[:80]})",
+                         error=True)
 
     def _fatal_fallback(self) -> None:
         """Мультимедиа недоступна — открываем системным плеером и закрываемся."""
@@ -347,9 +458,9 @@ class VideoViewer(QDialog):
         key = event.key()
         if key in (Qt.Key.Key_Space, ):
             self._toggle_play()
-        elif key == Qt.Key.Key_Left:
+        elif key == Qt.Key.Key_Left and self.player is not None:
             self.player.setPosition(max(self.player.position() - 10_000, 0))
-        elif key == Qt.Key.Key_Right:
+        elif key == Qt.Key.Key_Right and self.player is not None:
             self.player.setPosition(self.player.position() + 10_000)
         elif key in (Qt.Key.Key_Escape, Qt.Key.Key_Back):
             self.close()
@@ -358,12 +469,10 @@ class VideoViewer(QDialog):
 
     def mousePressEvent(self, event) -> None:  # noqa: N802 — Qt API
         if event.button() == Qt.MouseButton.LeftButton:
-            self._toggle_play()
+            if self.player is None:
+                self.close()         # показывать нечего — клик закрывает
+            else:
+                self._toggle_play()
         elif event.button() == Qt.MouseButton.RightButton:
             self.close()
         super().mousePressEvent(event)
-
-    def resizeEvent(self, event) -> None:  # noqa: N802 — Qt API
-        if self.loading_label.isVisible():
-            self._show_loading(True)
-        super().resizeEvent(event)
