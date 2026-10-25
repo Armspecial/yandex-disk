@@ -125,7 +125,7 @@ def test_collect_batches_and_default_sort(qapp):
 
     assert not page.model.loading
     assert page.model.rowCount() == 205
-    assert adds == [200, 5]                                    # две порции, как пагинация API
+    assert adds == [205]                                       # одна крупная порция из кэша/обхода
 
     from ydx.ui.views.files_model import ResourceRole
     from ydx.ui.views.photo_timeline import HeaderRole

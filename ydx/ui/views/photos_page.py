@@ -15,7 +15,6 @@ from PySide6.QtWidgets import (
     QWidget,
 )
 
-from ydx.constants import PAGE_SIZE
 from ydx.core.models import Resource
 from ydx.services import i18n, openers
 from ydx.services.accounts import AccountManager
@@ -191,7 +190,9 @@ class PhotosPage(QWidget):
             return
 
         # сбор из двух источников (плоский список + автозагрузка) порциями:
-        # страницы тянутся по одной в пуле потоков, модель растёт инкрементально
+        # порции крупные (каждая = пересортировка таймлайна), кэш отдаёт их
+        # мгновенно — вся лента из кэшей появляется за ~секунду
+        collect_batch = 2000
         self._collect_id += 1
         collect_id = self._collect_id
         self._unlim_error = None
@@ -202,7 +203,7 @@ class PhotosPage(QWidget):
             batch: list[Resource] = []
             for item in pages:                 # генератор отдаёт по одному
                 batch.append(item)
-                if len(batch) >= PAGE_SIZE:
+                if len(batch) >= collect_batch:
                     break
             return batch
 
@@ -229,14 +230,11 @@ class PhotosPage(QWidget):
         self._collect_next(pull, done, failed)
 
     def _merged_iter(self, resources):
-        """Лента: сначала весь Диск (REST), затем безлимит (внутреннее API).
-
-        REST-часть лежит в дисковом кэше с ревизией Диска: лента показывается
-        мгновенно, ревизия не изменилась — обхода дерева нет; изменилась —
-        фоновый обход обновляет кэш, новые фото догружаются по ходу.
-        К перезалитым фото применяем EXIF-даты из кэша безлимита (дорабатывается
-        фоном). Ошибка безлимита не должна ронять REST-часть — запоминаем её
-        для полосы состояния и заканчиваем выдачу.
+        """Лента: сначала безлимит (свежие фото телефона — мгновенно из кэша),
+        затем весь Диск (REST): кэш мгновенно, а обход дерева при изменившейся
+        ревизии идёт фоном В КОНЦЕ — обновления Диска не должны прятать ленту
+        безлимита на время обхода. К перезалитым фото применяем EXIF-даты из
+        кэша безлимита. Ошибка безлимита не должна ронять REST-часть.
         """
         from dataclasses import replace
 
@@ -246,15 +244,14 @@ class PhotosPage(QWidget):
             override = overrides.get(r.path)
             return replace(r, modified=override) if override is not None else r
 
+        if (self._unlim is not None and self._unlim.enabled
+                and self._unlim.has_cookies):
+            wanted = None if self._media == "all" else self._media
+            try:
+                yield from self._unlim.iter_media(wanted)
+            except Exception as exc:  # noqa: BLE001 — лента важнее
+                self._unlim_error = exc
         yield from self._rest_iter(resources, with_override)
-        if (self._unlim is None or not self._unlim.enabled
-                or not self._unlim.has_cookies):
-            return
-        wanted = None if self._media == "all" else self._media
-        try:
-            yield from self._unlim.iter_media(wanted)
-        except Exception as exc:  # noqa: BLE001 — лента важнее
-            self._unlim_error = exc
 
     def _rest_iter(self, resources, with_override):
         """REST-часть ленты: кэш мгновенно, затем проверка ревизии Диска;

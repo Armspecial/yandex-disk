@@ -283,5 +283,6 @@
   "unlim.no_link": "No direct link to play",
   "photos.tab_all": "All",
   "photos.count_video": "{n} videos",
-  "photos.count_all": "{n} photos & videos"
+  "photos.count_all": "{n} photos & videos",
+  "viewer.left": "{eta} left"
 }

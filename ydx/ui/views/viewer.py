@@ -29,14 +29,25 @@ def viewer_kind(resource: Resource) -> str:
     return "external"
 
 
-def _progress_text(done: int, total: int) -> str:
+def _eta_text(seconds: float) -> str:
+    sec = int(seconds)
+    if sec < 90:
+        return f"{sec} с"
+    return f"{sec // 60} мин {sec % 60:02d} с"
+
+
+def _progress_text(done: int, total: int, speed: float = 0.0) -> str:
     from ydx.services import i18n
     from ydx.services.fmt import human_size
 
-    if total:
-        return i18n.tr("viewer.progress",
-                       done=human_size(done), total=human_size(total))
-    return human_size(done)
+    text = i18n.tr("viewer.progress",
+                   done=human_size(done), total=human_size(total))
+    if speed > 1:                                   # байт/с — когда уже измерена
+        text += f" · {human_size(int(speed))}/с"
+        if total > done:
+            text += " · " + i18n.tr("viewer.left",
+                                    eta=_eta_text((total - done) / speed))
+    return text
 
 
 class PhotoViewer(QDialog):
@@ -236,29 +247,53 @@ class PhotoViewer(QDialog):
         painter.end()
 
 
-class VideoViewer(QDialog):
-    """Видео прямо в приложении: скачивание в кэш с прогрессом → QMediaPlayer.
+class _Speedometer:
+    """Скорость загрузки (EMA по полусекундным окнам) для прогресса."""
 
-    Плеер создаётся лениво — только когда появляется играбельный источник:
-    клик по файлу без playable-ссылки не трогает мультимедиа-стек вовсе.
+    def __init__(self) -> None:
+        self._t0: float | None = None
+        self._done0 = 0
+        self.speed = 0.0                     # байт/с
+
+    def update(self, done: int) -> float:
+        import time
+
+        now = time.time()
+        if self._t0 is None:
+            self._t0 = now
+            self._done0 = done
+            return self.speed
+        dt = now - self._t0
+        if dt >= 0.5:
+            self.speed = max(0.0, (done - self._done0) / dt)
+            self._t0 = now
+            self._done0 = done
+        return self.speed
+
+
+class VideoViewer(QDialog):
+    """Видео: обычное окно, скачивание в кэш с прогрессом (скорость/остаток)
+    → по готовности сразу воспроизведение.
+
+    Стрим по прямой ссылке убран сознательно: короткоживущие ссылки рвутся
+    посреди просмотра (обрывы TLS на стороне хранения), а повторные попытки
+    демуксера подвешивали интерфейс. Плеер создаётся лениво — только когда
+    файл скачан; клик по файлу без ссылки не трогает мультимедиа-стек вовсе.
     Управление: клик/Space — пауза, ←/→ — ±10 с, Esc — выход.
     """
 
-    _progress_updated = Signal(int, int)      # скачано, всего
+    _progress_updated = Signal(int, int, float)   # скачано, всего, байт/с
 
     def __init__(
         self, resource: Resource, resources_api, parent=None, unlim=None,
     ) -> None:
         super().__init__(parent)
         self.setAttribute(Qt.WidgetAttribute.WA_DeleteOnClose)
-        self.setWindowFlag(Qt.WindowType.FramelessWindowHint)
-        self.setWindowState(Qt.WindowState.WindowFullScreen)
+        self.setWindowTitle(resource.name)
         self.setStyleSheet("background-color: #101012;")
         self._resource = resource
         self._api = resources_api
         self._unlim = unlim
-        self._stream_url: str | None = None      # играем по прямой ссылке (безлимит)
-        self._stream_fallback_done = False
         self.player = None                        # лениво: см. _ensure_player
         self._progress_updated.connect(self._set_progress)
 
@@ -272,13 +307,17 @@ class VideoViewer(QDialog):
         self.status_label.setAlignment(Qt.AlignmentFlag.AlignCenter)
         col.addWidget(self.status_label, 1)
 
+        # обычное окно ~70% экрана по центру (не фуллскрин)
+        from PySide6.QtGui import QGuiApplication
+
+        screen = QGuiApplication.primaryScreen().availableGeometry()
+        self.resize(screen.width() * 7 // 10, screen.height() * 7 // 10)
+        self.move(screen.center() - self.rect().center())
+
         if resource.path.startswith("photounlim:"):
-            # безлимит: играем по прямой ссылке (свежая, mpfs/url — работает
-            # и для видео), фолбэк — скачать кукисессией и играть из кэша
-            if resource.file_url:
-                self._play_url(resource.file_url)
-            elif self._unlim is not None:
-                self._start_unlim_stream()
+            # безлимит: скачать по свежей прямой ссылке и играть из кэша
+            if self._unlim is not None:
+                self._start_unlim_download()
             else:
                 from ydx.services import i18n
 
@@ -336,47 +375,20 @@ class VideoViewer(QDialog):
 
     # --- загрузка и воспроизведение --------------------------------------------
 
-    def _play_url(self, url: str) -> None:
-        """Воспроизвести по прямой ссылке (безлимитное видео)."""
-        from PySide6.QtCore import QUrl
-
-        if not self._ensure_player():
-            return
-        self._stream_url = url
-        self.player.setSource(QUrl(url))
-        self.player.play()
-
-    def _start_unlim_stream(self) -> None:
-        """Свежая прямая ссылка на видео безлимита → стрим без скачивания."""
-        from ydx.services import i18n
-        from ydx.services.workers import run_in_thread
-
-        self._set_status(i18n.tr("viewer.loading_video"))
-
-        def job():
-            return self._unlim.item_url(self._resource.path)
-
-        def done(url) -> None:
-            if url:
-                self._play_url(url)
-            else:
-                self._on_error(i18n.tr("unlim.no_link"))
-
-        run_in_thread(job, done, lambda exc: self._on_error(str(exc)))
-
     def _start_unlim_download(self) -> None:
-        """Стрим не пошёл — скачать безлимитное видео в кэш и проиграть."""
+        """Скачать видео безлимита по свежей прямой ссылке и проиграть."""
         from ydx.constants import OPEN_CACHE_DIR
         from ydx.services import i18n, openers
         from ydx.services.workers import run_in_thread
 
         self._set_status(i18n.tr("viewer.loading_video"))
+        speedometer = _Speedometer()
 
         def job() -> dict:
             return openers.unlim_download(
                 self._unlim, [self._resource], OPEN_CACHE_DIR,
-                progress=lambda _path, done, total:
-                    self._progress_updated.emit(done, total))
+                progress=lambda _path, done, total: self._progress_updated.emit(
+                    done, total, speedometer.update(done)))
 
         def done(result: dict) -> None:
             if result["paths"]:
@@ -391,11 +403,13 @@ class VideoViewer(QDialog):
         from ydx.services.workers import run_in_thread
 
         self._set_status(i18n.tr("viewer.loading_video"))
+        speedometer = _Speedometer()
 
         def job():
             return openers._download(
                 self._api, self._resource, openers.cache_path(self._resource),
-                lambda done, total: self._progress_updated.emit(done, total))
+                lambda done, total: self._progress_updated.emit(
+                    done, total, speedometer.update(done)))
 
         run_in_thread(
             job,
@@ -419,13 +433,11 @@ class VideoViewer(QDialog):
         if self.player is None:
             self.status_label.show()
         elif error:
-            from ydx.services import i18n
-
             self.error_label.setText(text)
             self.error_label.show()
 
-    def _set_progress(self, done: int, total: int) -> None:
-        self._set_status(_progress_text(done, total))
+    def _set_progress(self, done: int, total: int, speed: float = 0.0) -> None:
+        self._set_status(_progress_text(done, total, speed))
 
     def _on_duration(self, ms: int) -> None:
         self.slider.setRange(0, max(ms, 1))
@@ -454,11 +466,6 @@ class VideoViewer(QDialog):
     def _on_error(self, message: str) -> None:
         from ydx.services import i18n
 
-        if (self._stream_url is not None and not self._stream_fallback_done
-                and self._unlim is not None):
-            self._stream_fallback_done = True
-            self._start_unlim_download()      # стрим не пошёл — скачаем кукисессией
-            return
         self._set_status(i18n.tr("viewer.video_error") + f" ({message[:80]})",
                          error=True)
 
@@ -469,7 +476,10 @@ class VideoViewer(QDialog):
         from ydx.services import openers
 
         if self._resource.path.startswith("photounlim:"):
-            if self._resource.file_url:
+            cached = openers.cache_path(self._resource)
+            if cached.exists():                     # уже скачано — отдадим системе
+                QDesktopServices.openUrl(QUrl.fromLocalFile(str(cached)))
+            elif self._resource.file_url:
                 QDesktopServices.openUrl(QUrl(self._resource.file_url))
             self.close()
             return

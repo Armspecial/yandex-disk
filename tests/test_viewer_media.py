@@ -114,24 +114,66 @@ def test_video_downloads_with_progress_then_plays(qapp, monkeypatch):
 # --- фото ----------------------------------------------------------------------------
 
 
-def test_unlim_video_streams_by_item_url(qapp, monkeypatch):
-    """Видео безлимита без ORIGINAL: свежая ссылка mpfs/url → стрим-плеер."""
-    from ydx.services import i18n
+def test_unlim_video_downloads_then_plays_normal_window(qapp, _dirs, monkeypatch):
+    """Видео безлимита: скачивание с прогрессом → плеер; окно обычное,
+    не фуллскрин, без растягивания на весь экран."""
+    from PySide6.QtCore import Qt
+    from ydx.services import i18n, openers
     from ydx.ui.views.viewer import VideoViewer
 
     i18n.load("ru")
+    media = _dirs / "open" / "v.mp4"
+    media.parent.mkdir(parents=True, exist_ok=True)
+    media.write_bytes(b"")
 
-    class _Unlim:
-        def item_url(self, path):
-            return "https://downloader.disk.yandex.ru/disk/vid.mp4"
+    def fake_unlim_download(unlim, resources, target_dir, progress=None):
+        if progress:
+            progress(resources[0].path, 4, 10)
+            progress(resources[0].path, 10, 10)
+        return {"done": 1, "skipped": 0, "names": [], "paths": [str(media)]}
 
+    monkeypatch.setattr(openers, "unlim_download", fake_unlim_download)
     viewer = VideoViewer(_res("photounlim:/v.mp4", "video"), None, None,
-                         unlim=_Unlim())
+                         unlim=object())
     viewer.show()
     _pump()
 
-    assert viewer.player is not None                 # стрим пошёл в плеер
-    assert viewer._stream_url.endswith("vid.mp4")
+    assert viewer.player is not None                 # играет из скачанного файла
+    assert not viewer.windowState() & Qt.WindowState.WindowFullScreen
+    assert not viewer.windowFlags() & Qt.WindowType.FramelessWindowHint
+    assert viewer.windowTitle() == "v.mp4"
+    viewer.close()
+
+
+def test_video_download_progress_shows_speed_and_left(qapp, _dirs, monkeypatch):
+    """Прогресс содержит скачано/всего, скорость и остаток времени."""
+    import time as _time
+
+    from ydx.services import i18n, openers
+    from ydx.ui.views.viewer import VideoViewer
+
+    i18n.load("ru")
+    media = _dirs / "open" / "clip2.mp4"
+    media.parent.mkdir(parents=True, exist_ok=True)
+    media.write_bytes(b"")
+
+    real_sleep = _time.time
+
+    def fake_download(api, resource, target, progress=None):
+        if progress:
+            # имитируем секунду загрузки, чтобы спидометр что-то посчитал
+            progress(2 * 1024 * 1024, 10 * 1024 * 1024)
+            _time.sleep(0.6)                         # noqa: SLF001 — окно спидометра
+            progress(5 * 1024 * 1024, 10 * 1024 * 1024)
+        return target
+
+    monkeypatch.setattr(openers, "_download", fake_download)
+    viewer = VideoViewer(_res("disk:/v/clip2.mp4", "video"), None, None)
+    viewer.show()
+    _pump(2500)
+
+    text = viewer.status_label.text()
+    assert "из" in text                                # «Скачано X из Y»
     viewer.close()
 
 

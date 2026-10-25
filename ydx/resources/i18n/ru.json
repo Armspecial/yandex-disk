@@ -283,5 +283,6 @@
   "unlim.no_link": "Нет прямой ссылки для воспроизведения",
   "photos.tab_all": "Все",
   "photos.count_video": "{n} видео",
-  "photos.count_all": "{n} фото и видео"
+  "photos.count_all": "{n} фото и видео",
+  "viewer.left": "осталось {eta}"
 }
