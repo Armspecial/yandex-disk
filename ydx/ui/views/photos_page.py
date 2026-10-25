@@ -489,6 +489,9 @@ class PhotosPage(QWidget):
         act_save = QAction(i18n.tr("ctx.download"), menu)
         act_save.triggered.connect(lambda: self._download_selected([single]))
         menu.addAction(act_save)
+        act_del = QAction(i18n.tr("photos.delete"), menu)
+        act_del.triggered.connect(lambda: self._delete_selected([single]))
+        menu.addAction(act_del)
         menu.addSeparator()
         act_props = QAction(i18n.tr("ctx.properties"), menu)
         act_props.triggered.connect(
@@ -496,6 +499,46 @@ class PhotosPage(QWidget):
         )
         menu.addAction(act_props)
         menu.exec(global_pos)
+
+    def _delete_selected(self, resources: list[Resource]) -> None:
+        """Удаление с Диска (в Корзину) — подтверждение, затем фоново."""
+        from ydx.services.workers import run_in_thread
+
+        single = resources[0]
+        answer = QMessageBox.question(
+            self, i18n.tr("photos.delete"),
+            i18n.tr("photos.delete_confirm", name=single.name),
+            QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+            QMessageBox.StandardButton.No)
+        if answer != QMessageBox.StandardButton.Yes:
+            return
+
+        if single.path.startswith("photounlim:") and self._unlim is not None:
+            run_in_thread(
+                lambda: self._unlim.delete_items([single]),
+                lambda _ok: self._drop_items([single.path]),
+                lambda exc: self._delete_failed(single, exc))
+            return
+        api = self._accounts.resources
+        if api is None:
+            return
+        run_in_thread(
+            lambda: api.delete(single.path),
+            lambda _op: self._drop_items([single.path]),
+            lambda exc: self._delete_failed(single, exc))
+
+    def _drop_items(self, paths: list[str]) -> None:
+        """Убрать удалённое из модели и собранной копии ленты."""
+        drop = set(paths)
+        items = [r for r in self.model.items if r.path not in drop]
+        self.model.set_items(items)
+        self._collected[self._media] = items
+
+    def _delete_failed(self, resource: Resource, exc: Exception) -> None:
+        QMessageBox.warning(
+            self, i18n.tr("photos.delete"),
+            i18n.tr("photos.delete_error",
+                    name=resource.name, error=str(exc)[:120]))
 
     def retranslate(self) -> None:
         self.title.setText(i18n.tr("photos.title"))

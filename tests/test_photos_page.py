@@ -455,3 +455,101 @@ def test_thumb_png_cache_migrates_to_jpg(qapp, tmp_path, monkeypatch):
     assert (tmp_path / key[:2] / f"{key}.jpg").exists()   # перезаписан компактно
     assert not png.exists()                               # PNG убран
     assert service._load_disk(key) is not None            # теперь читается JPG
+
+
+# --- удаление с Диска ---------------------------------------------------------
+
+
+def _del_photo(path: str):
+    from datetime import datetime, timezone
+
+    from ydx.core.models import Resource
+
+    return Resource(name=path.rsplit("/", 1)[-1], type="file", path=path,
+                    media_type="image", size=5,
+                    modified=datetime(2026, 9, 28, 16, 4, tzinfo=timezone.utc))
+
+
+class _DeleteApi(_StubApi):
+    def __init__(self, batches) -> None:
+        super().__init__(batches)
+        self.deleted: list[str] = []
+
+    def delete(self, path, permanently=False):
+        self.deleted.append(path)
+        return None
+
+
+class _YesBox:
+    """QMessageBox-заглушка: вопрос всегда «Да», warning — в пустоту."""
+
+    class StandardButton:
+        Yes = 1
+        No = 2
+
+    @staticmethod
+    def question(*_args, **_kwargs):
+        return _YesBox.StandardButton.Yes
+
+    @staticmethod
+    def warning(*_args, **_kwargs):
+        return None
+
+
+def test_delete_rest_photo_removes_from_feed(qapp, monkeypatch):
+    """Правый клик → «Удалить с Диска»: подтверждение, API-вызов, из ленты
+    фото исчезает."""
+    import ydx.ui.views.photos_page as pp
+
+    res = _del_photo("disk:/Фото/x.jpg")
+    api = _DeleteApi([[res]])
+    page, _acc = _page_from(qapp, _StubAccounts(api))
+    page.on_shown()
+    _pump(600)
+    assert any(r.path == res.path for r in page.model.items)
+
+    monkeypatch.setattr(pp, "QMessageBox", _YesBox)
+    page._delete_selected([res])
+    _pump(600)
+
+    assert api.deleted == ["disk:/Фото/x.jpg"]
+    assert all(r.path != res.path for r in page.model.items)
+
+
+def test_delete_unlim_photo_calls_service(qapp, monkeypatch):
+    """Фото безлимита удаляется сервисом безлимита (web-путь), из ленты
+    тоже исчезает."""
+    import ydx.ui.views.photos_page as pp
+
+    class _Unlim:
+        enabled = True
+        has_cookies = True
+
+        def __init__(self) -> None:
+            self.deleted: list[str] = []
+
+        def date_overrides(self):
+            return {}
+
+        def iter_media(self, _wanted=None):
+            return iter([])
+
+        def delete_items(self, resources):
+            self.deleted.extend(r.path for r in resources)
+            return [r.path.replace("photounlim:/", "/photounlim/", 1)
+                    for r in resources]
+
+    unlim = _Unlim()
+    res = _del_photo("photounlim:/2026-09-26 18-51-52.JPG")
+    api = _StubApi([])
+    page, _acc = _page_from(qapp, _StubAccounts(api))
+    page._unlim = unlim
+    page.model.set_items([res])
+    _pump(200)
+
+    monkeypatch.setattr(pp, "QMessageBox", _YesBox)
+    page._delete_selected([res])
+    _pump(600)
+
+    assert unlim.deleted == ["photounlim:/2026-09-26 18-51-52.JPG"]
+    assert all(r.path != res.path for r in page.model.items)

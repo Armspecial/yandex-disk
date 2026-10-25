@@ -519,3 +519,52 @@ def test_preview_url_refresh(qapp, store_dir, monkeypatch):
     service._client = _FakeClient()
     service._client_login = "u"
     assert service.preview_url("photounlim:/pic.jpg") == "https://2.t/preview/x"
+
+
+# --- удаление безлимита -------------------------------------------------------
+
+
+class _DeletingClient(_StubClient):
+    def __init__(self, items_by_cluster: dict) -> None:
+        super().__init__(items_by_cluster)
+        self.deleted_batches: list[list[str]] = []
+
+    def delete_resources(self, paths: list[str]) -> list[str]:
+        self.deleted_batches.append(list(paths))
+        for items in self.items_by_cluster.values():   # «сервер» тоже удалил
+            items[:] = [r for r in items
+                        if r.path.replace("photounlim:/", "/photounlim/", 1)
+                        not in paths]
+        return list(paths)
+
+
+def test_delete_items_updates_cache_and_signature(qapp, store_dir, tmp_path,
+                                                  monkeypatch):
+    """Удаление: серверу — web-путь, из кэша элемент исчезает, сигнатура
+    кластера уменьшается — следующий iter_media не перезабирает кластер."""
+    from ydx import constants as const
+
+    monkeypatch.setattr(const, "CACHE_DIR", tmp_path)
+    from ydx.services.unlim import UnlimFeedCache, UnlimService
+
+    accounts = _accounts(qapp, ["u"], "u")
+    service = UnlimService(_StubSettings(), accounts)
+    client = _DeletingClient({
+        "c1": [_res("photounlim:/a.jpg"), _res("photounlim:/b.jpg")],
+    })
+    service._client = client
+    service._client_login = "u"
+
+    list(service.iter_media("image"))              # кэш прогрет: c1 = (2, 2)
+
+    accepted = service.delete_items([_res("photounlim:/a.jpg")])
+    assert accepted == ["/photounlim/a.jpg"]       # серверу — web-форма пути
+    assert client.deleted_batches == [["/photounlim/a.jpg"]]
+
+    _saved, clusters, entries = UnlimFeedCache("u").load_full()
+    assert [r.path for _cid, r in entries] == ["photounlim:/b.jpg"]
+    assert clusters["c1"] == (1, 1)                # сигнатура сжалась
+
+    again = list(service.iter_media("image"))      # снапшот совпал — без обхода
+    assert [r.path for r in again] == ["photounlim:/b.jpg"]
+    assert client.walked == ["c1"]

@@ -397,3 +397,41 @@ def test_download_links_fallback_for_video():
         "/photounlim/IMG.jpg": "https://1.downloader.disk.yandex.ru/disk/orig",
         "/photounlim/VID.mp4": "https://downloader.disk.yandex.ru/disk/vid",
     }
+
+
+# --- удаление в корзину -------------------------------------------------------
+
+
+def test_delete_resources_batches_and_echo(monkeypatch):
+    """bulk-async-delete: пачки ≤40, payload [{src}], echo-ответ парсится."""
+    from ydx.core.unlim_api import DELETE_BATCH, UnlimClient
+
+    client = UnlimClient.__new__(UnlimClient)      # без сети
+    calls = []
+
+    def fake_call(method, params=None, **_k):
+        calls.append((method, params))
+        return [{"oid": f"o{i}", "operation": {"src": op["src"]}}
+                for i, op in enumerate(params or [])]
+
+    monkeypatch.setattr(client, "_call", fake_call)
+    client._sleeper = lambda _s: None      # __new__: атрибута ещё нет
+    assert DELETE_BATCH == 40
+
+    paths = [f"/photounlim/f{i}.jpg" for i in range(45)]
+    accepted = client.delete_resources(paths)
+
+    assert [m for m, _p in calls] == ["mpfs/bulk-async-delete"] * 2
+    assert calls[0][1] == [{"src": p} for p in paths[:40]]
+    assert len(calls[1][1]) == 5
+    assert accepted == paths                       # echo вернул все пути
+
+
+def test_delete_resources_without_echo_accepts_batch(monkeypatch):
+    """Ответ без списка операций (форма изменилась) — пачка принята целиком."""
+    from ydx.core.unlim_api import UnlimClient
+
+    client = UnlimClient.__new__(UnlimClient)
+    monkeypatch.setattr(client, "_call", lambda _m, _p=None, **_k: {})
+    accepted = client.delete_resources(["/photounlim/one.jpg"])
+    assert accepted == ["/photounlim/one.jpg"]

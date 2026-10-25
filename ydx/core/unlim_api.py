@@ -50,6 +50,7 @@ USER_AGENT = ("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
 
 CLUSTER_CHUNK = 50                 # кластеров на запрос (лимит сервера)
 INFO_BATCH = 50                    # путей на mpfs/bulk-resource-info
+DELETE_BATCH = 40                  # операций на mpfs/bulk-async-delete (выше — Too many items)
 CHUNK_SLEEP = (0.3, 0.8)           # пауза между чанками, с (джиттер)
 BACKOFFS = (1, 2, 4, 8)            # ретраи 429/5xx — как ApiClient
 
@@ -363,6 +364,32 @@ class UnlimClient:
             if url:
                 links[path] = url
         return links
+
+    def delete_resources(self, paths: list[str]) -> list[str]:
+        """Удалить элементы безлимита в корзину (mpfs/bulk-async-delete).
+
+        Операции асинхронные: сервер принимает пачки [{src: …}] (≤40, как
+        у bulk-async-move) и отвечает списком операций с oids. Возвращает
+        пути, принятые сервером; сбой — UnlimError. Удалённое восстановимо
+        из корзины (mpfs/bulk-async-restore — парный метод).
+        """
+        accepted: list[str] = []
+        for start in range(0, len(paths), DELETE_BATCH):
+            batch = paths[start:start + DELETE_BATCH]
+            data = self._call("mpfs/bulk-async-delete",
+                              [{"src": p} for p in batch])
+            rows = data if isinstance(data, list) else (
+                (data.get("data") or data.get("items") or [])
+                if isinstance(data, dict) else [])
+            got = {
+                str((row.get("operation") or {}).get("src"))
+                for row in rows if isinstance(row, dict)
+            }
+            # ответ не echo-ит пути — верим приёму всей пачки (HTTP 200 без error)
+            accepted.extend(p for p in batch if not got or p in got)
+            if start + DELETE_BATCH < len(paths):
+                self._sleeper(0.3)
+        return accepted
 
     def diagnostic_dump(self) -> dict:
         """Сырые ответы цепочки — для уточнения полей при изменениях API."""

@@ -285,5 +285,8 @@
   "photos.count_video": "{n} videos",
   "photos.count_all": "{n} photos & videos",
   "viewer.left": "{eta} left",
-  "viewer.open_external": "Open in system player"
+  "viewer.open_external": "Open in system player",
+  "photos.delete": "Delete from Disk",
+  "photos.delete_confirm": "Delete \"{name}\" from Disk? It will move to Trash, where it can be restored.",
+  "photos.delete_error": "Could not delete \"{name}\": {error}"
 }

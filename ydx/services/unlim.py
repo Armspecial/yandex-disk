@@ -127,6 +127,38 @@ class UnlimFeedCache:
         data["saved_at"] = time.time()
         self._write(data)
 
+    def remove(self, paths: list[str]) -> int:
+        """Выкинуть элементы из кэша и уменьшить счётчики их кластеров.
+
+        Сигнатуры кластеров (size, photounlim) сдвигаем на число удалённых —
+        иначе снапшот при следующем открытии посчитает кластер изменившимся
+        и перезаберёт его целиком. Возвращает число удалённых из кэша.
+        """
+        drop = set(paths)
+        data = self._read()
+        kept: list[dict] = []
+        per_cluster: dict[str, int] = {}
+        for d in data.get("items") or []:
+            if d.get("path") in drop:
+                cid = str(d.get("cluster") or "")
+                per_cluster[cid] = per_cluster.get(cid, 0) + 1
+            else:
+                kept.append(d)
+        if not per_cluster:
+            return 0
+        data["items"] = kept
+        clusters = data.get("clusters")
+        if isinstance(clusters, dict):
+            for cid, n in per_cluster.items():
+                sig = clusters.get(cid)
+                if isinstance(sig, list) and len(sig) == 2:
+                    clusters[cid] = [max(0, int(sig[0]) - n),
+                                     max(0, int(sig[1]) - n)]
+            data["clusters"] = clusters
+        data["saved_at"] = time.time()
+        self._write(data)
+        return sum(per_cluster.values())
+
     def _read(self) -> dict:
         try:
             return json.loads(self._file.read_text("utf-8"))
@@ -327,6 +359,27 @@ class UnlimService(QObject):
         except Exception as exc:  # noqa: BLE001 — стрим не критичен, есть фолбэк
             log.debug("item_url failed for %s: %s", path, exc)
             return None
+
+    def delete_items(self, resources: list) -> list[str]:
+        """Удалить фото/видео безлимита в корзину; из кэша ленты — сразу.
+
+        Возвращает пути, принятые сервером (в web-форме /photounlim/…).
+        Сбой сети/сессии — исключение наверх, вызывающий покажет ошибку.
+        """
+        client = self.client
+        login = self._active_login()
+        if client is None or login is None:
+            from ydx.core.unlim_api import UnlimError
+
+            raise UnlimError("unlim: no active session")
+        web_paths = [r.path.replace("photounlim:/", "/photounlim/", 1)
+                     for r in resources if r.path.startswith("photounlim:/")]
+        if not web_paths:
+            return []
+        accepted = client.delete_resources(web_paths)
+        UnlimFeedCache(login).remove(
+            [r.path for r in resources if r.path.startswith("photounlim:/")])
+        return accepted
 
     def adopt_browser_cookies(self) -> tuple[str, str, bool] | None:
         """Найти куки в локальных браузерах и принять (auto=True).

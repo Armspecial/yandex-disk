@@ -285,5 +285,8 @@
   "photos.count_video": "{n} видео",
   "photos.count_all": "{n} фото и видео",
   "viewer.left": "осталось {eta}",
-  "viewer.open_external": "Открыть в системном плеере"
+  "viewer.open_external": "Открыть в системном плеере",
+  "photos.delete": "Удалить с Диска",
+  "photos.delete_confirm": "Удалить «{name}» с Диска? Файл попадёт в Корзину — оттуда его можно восстановить.",
+  "photos.delete_error": "Не удалось удалить «{name}»: {error}"
 }
