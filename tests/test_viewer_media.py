@@ -73,67 +73,92 @@ def test_stream_to_file_reports_progress(tmp_path):
 # --- видео ---------------------------------------------------------------------------
 
 
-def test_video_without_link_stays_lazy(qapp):
-    """Видео без прямой ссылки: окно с сообщением, мультимедиа-стек не трогаем."""
+def test_video_without_link_shows_error(qapp):
+    """Видео безлимита без сервиса: сообщение об ошибке, окно живо."""
     from ydx.services import i18n
     from ydx.ui.views.viewer import VideoViewer
 
     i18n.load("ru")
-    viewer = VideoViewer(_res("photounlim:/v.mp4", "video"), None, unlim=object())
+    viewer = VideoViewer(_res("photounlim:/v.mp4", "video"), None, None)
     qapp.processEvents()
 
-    assert viewer.player is None                     # плеер так и не создан
-    assert viewer.status_label.text()
+    assert viewer.status_label.text()          # сообщение показано
+    assert not getattr(viewer, "_sys_btn", None)
     viewer.close()
 
 
-def test_video_downloads_with_progress_then_plays(qapp, monkeypatch):
-    """REST-видео: скачивание с прогрессом, затем сразу воспроизведение."""
+def test_video_downloads_then_opens_system_player(qapp, _dirs, monkeypatch):
+    """REST-видео: прогресс скачивания, затем файл открывается системным
+    плеером, окно закрывается; окно обычное, не фуллскрин."""
+    from PySide6.QtCore import Qt
+
     from ydx.services import i18n, openers
+    import ydx.ui.views.viewer as viewer_mod
     from ydx.ui.views.viewer import VideoViewer
 
     i18n.load("ru")
-    media = openers.cache_path(_res("disk:/v/clip.mp4", "video"))
-    media.parent.mkdir(parents=True, exist_ok=True)
-    media.write_bytes(b"")
+    media = _dirs / "open" / "clip.mp4"
+    opened = []
 
-    progress_seen: list = []
+    class _FakeDesktop:
+        @staticmethod
+        def openUrl(url):
+            opened.append(url.toLocalFile())
+            return True
+
+    monkeypatch.setattr(viewer_mod, "QDesktopServices", _FakeDesktop)
 
     def fake_download(api, resource, target, progress=None, abort=None):
         if progress:
             progress(4, 10)
             progress(10, 10)
-        return target
+        media.parent.mkdir(parents=True, exist_ok=True)
+        media.write_bytes(b"")
+        return media
 
     monkeypatch.setattr(openers, "_download", fake_download)
     viewer = VideoViewer(_res("disk:/v/clip.mp4", "video"), None, None)
     viewer.show()
+    assert not viewer.windowState() & Qt.WindowState.WindowFullScreen
+    assert viewer.windowTitle() == "clip.mp4"
     _pump()
 
-    assert viewer.player is not None                 # плеер после скачивания
-    viewer.close()
+    assert opened == [str(media)]              # открыт системным плеером
+    try:
+        viewer.isVisible()
+        closed = False
+    except RuntimeError:                       # WA_DeleteOnClose уже снёс окно
+        closed = True
+    assert closed                              # окно закрылось после передачи
 
 
-# --- фото ----------------------------------------------------------------------------
-
-
-def test_unlim_video_downloads_then_plays_normal_window(qapp, _dirs, monkeypatch):
-    """Видео безлимита: скачивание с прогрессом → плеер; окно обычное,
-    не фуллскрин, без растягивания на весь экран."""
-    from PySide6.QtCore import Qt
+def test_unlim_video_downloads_then_opens_system_player(qapp, _dirs, monkeypatch):
+    """Видео безлимита: скачивание → системный плеер."""
     from ydx.services import i18n, openers
+    import ydx.ui.views.viewer as viewer_mod
     from ydx.ui.views.viewer import VideoViewer
 
     i18n.load("ru")
     media = _dirs / "open" / "v.mp4"
     media.parent.mkdir(parents=True, exist_ok=True)
     media.write_bytes(b"")
+    opened = []
 
-    def fake_unlim_download(unlim, resources, target_dir, progress=None, abort=None):
+    class _FakeDesktop:
+        @staticmethod
+        def openUrl(url):
+            opened.append(url.toLocalFile())
+            return True
+
+    monkeypatch.setattr(viewer_mod, "QDesktopServices", _FakeDesktop)
+
+    def fake_unlim_download(unlim, resources, target_dir, progress=None,
+                            abort=None):
         if progress:
             progress(resources[0].path, 4, 10)
             progress(resources[0].path, 10, 10)
-        return {"done": 1, "skipped": 0, "names": [], "paths": [str(media)]}
+        return {"done": 1, "skipped": 0, "names": [], "paths": [str(media)],
+                "errors": {}}
 
     monkeypatch.setattr(openers, "unlim_download", fake_unlim_download)
     viewer = VideoViewer(_res("photounlim:/v.mp4", "video"), None, None,
@@ -141,43 +166,18 @@ def test_unlim_video_downloads_then_plays_normal_window(qapp, _dirs, monkeypatch
     viewer.show()
     _pump()
 
-    assert viewer.player is not None                 # играет из скачанного файла
-    assert not viewer.windowState() & Qt.WindowState.WindowFullScreen
-    assert not viewer.windowFlags() & Qt.WindowType.FramelessWindowHint
-    assert viewer.windowTitle() == "v.mp4"
-    viewer.close()
+    assert opened == [str(media)]
 
 
-def test_video_download_progress_shows_speed_and_left(qapp, _dirs, monkeypatch):
-    """Прогресс содержит скачано/всего, скорость и остаток времени."""
-    import time as _time
-
-    from ydx.services import i18n, openers
-    from ydx.ui.views.viewer import VideoViewer
+def test_progress_text_contains_speed_and_left():
+    """«Скачано X из Y · N/с · осталось T» — скорость и остаток на месте."""
+    from ydx.services import i18n
+    from ydx.ui.views.viewer import _progress_text
 
     i18n.load("ru")
-    media = _dirs / "open" / "clip2.mp4"
-    media.parent.mkdir(parents=True, exist_ok=True)
-    media.write_bytes(b"")
-
-    real_sleep = _time.time
-
-    def fake_download(api, resource, target, progress=None, abort=None):
-        if progress:
-            # имитируем секунду загрузки, чтобы спидометр что-то посчитал
-            progress(2 * 1024 * 1024, 10 * 1024 * 1024)
-            _time.sleep(0.6)                         # noqa: SLF001 — окно спидометра
-            progress(5 * 1024 * 1024, 10 * 1024 * 1024)
-        return target
-
-    monkeypatch.setattr(openers, "_download", fake_download)
-    viewer = VideoViewer(_res("disk:/v/clip2.mp4", "video"), None, None)
-    viewer.show()
-    _pump(2500)
-
-    text = viewer.status_label.text()
-    assert "из" in text                                # «Скачано X из Y»
-    viewer.close()
+    text = _progress_text(5 * 1024 * 1024, 10 * 1024 * 1024,
+                          1024 * 1024)      # 1 МБ/с → ~5 с остатка
+    assert "из" in text and "/с" in text and "осталось" in text
 
 
 def test_photo_viewer_loads_original_from_unlim(qapp):
