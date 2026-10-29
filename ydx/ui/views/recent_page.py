@@ -27,11 +27,14 @@ class RecentPage(QWidget):
     show_in_folder_requested = Signal(str)   # путь родительской папки
 
     def __init__(self, accounts: AccountManager, thumbs: ThumbService,
-                 state_service=None, parent=None) -> None:
+                 state_service=None, engine=None, settings=None,
+                 parent=None) -> None:
         super().__init__(parent)
         self._accounts = accounts
         self._thumbs = thumbs
         self._state = state_service
+        self._engine = engine                  # TransferEngine | None (скачивание)
+        self._settings = settings
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
@@ -127,6 +130,25 @@ class RecentPage(QWidget):
         parent = resource.path.rsplit("/", 1)[0] or "disk:/"
         self.show_in_folder_requested.emit(parent)
 
+    def _download_selected(self, resources: list[Resource]) -> None:
+        """Скачать в ~/Yandex Disk (или папку из настроек), повторяя структуру облака."""
+        from pathlib import Path
+
+        from ydx.ui.views.files_page import mirror_local_path
+
+        if self._engine is None:
+            return
+        files = [r for r in resources if not r.is_dir]
+        if not files:
+            return
+        configured = None
+        if self._settings is not None:
+            configured = self._settings.get("downloads_dir")
+        base = Path(configured or str(Path.home() / "Yandex Disk"))
+        base.mkdir(parents=True, exist_ok=True)
+        for r in files:
+            self._engine.enqueue_download(r, str(mirror_local_path(base, r.path)))
+
     def _context_menu(self, global_pos, resources: list[Resource]) -> None:
         if not resources:
             return
@@ -139,6 +161,11 @@ class RecentPage(QWidget):
             act_folder = QAction(i18n.tr("recent.show_in_folder"), menu)
             act_folder.triggered.connect(lambda: self._show_in_folder(single))
             menu.addAction(act_folder)
+        if any(not r.is_dir for r in resources):
+            act_download = QAction(i18n.tr("ctx.download"), menu)
+            act_download.triggered.connect(lambda: self._download_selected(resources))
+            menu.addAction(act_download)
+        if single is not None:
             menu.addSeparator()
             act_props = QAction(i18n.tr("ctx.properties"), menu)
             act_props.triggered.connect(

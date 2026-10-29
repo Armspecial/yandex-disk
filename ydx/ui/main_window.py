@@ -222,7 +222,10 @@ class MainWindow(QMainWindow):
         self.replace_page("files", self.files_page)
         self.transfers_view = TransfersView(self.engine)
         self.replace_page("transfers", self.transfers_view)
-        self.recent_page = RecentPage(accounts, self.thumbs, self.state_service)
+        self.recent_page = RecentPage(
+            accounts, self.thumbs, self.state_service,
+            engine=self.engine, settings=settings,
+        )
         self.recent_page.show_in_folder_requested.connect(self._show_in_folder)
         self.replace_page("recent", self.recent_page)
         self.photos_page = PhotosPage(
