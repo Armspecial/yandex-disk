@@ -2,12 +2,15 @@
 
 from __future__ import annotations
 
+from pathlib import Path
+
 from PySide6.QtCore import Qt, Signal
 from PySide6.QtGui import QAction
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
     QMenu,
+    QMessageBox,
     QStackedWidget,
     QVBoxLayout,
     QWidget,
@@ -15,6 +18,7 @@ from PySide6.QtWidgets import (
 
 from ydx.core.models import Resource
 from ydx.services import i18n, openers
+from ydx.ui.errors_ui import confirm
 from ydx.services.accounts import AccountManager
 from ydx.services.thumbs import ThumbService
 from ydx.services.workers import run_in_thread
@@ -27,7 +31,7 @@ class RecentPage(QWidget):
     show_in_folder_requested = Signal(str)   # путь родительской папки
 
     def __init__(self, accounts: AccountManager, thumbs: ThumbService,
-                 state_service=None, engine=None, settings=None,
+                 state_service=None, engine=None, settings=None, downloaded=None,
                  parent=None) -> None:
         super().__init__(parent)
         self._accounts = accounts
@@ -35,6 +39,7 @@ class RecentPage(QWidget):
         self._state = state_service
         self._engine = engine                  # TransferEngine | None (скачивание)
         self._settings = settings
+        self._downloaded = downloaded          # DownloadedIndex | None (offline)
 
         col = QVBoxLayout(self)
         col.setContentsMargins(0, 0, 0, 0)
@@ -132,8 +137,6 @@ class RecentPage(QWidget):
 
     def _download_selected(self, resources: list[Resource]) -> None:
         """Скачать в ~/Yandex Disk (или папку из настроек), повторяя структуру облака."""
-        from pathlib import Path
-
         from ydx.ui.views.files_page import mirror_local_path
 
         if self._engine is None:
@@ -148,6 +151,34 @@ class RecentPage(QWidget):
         base.mkdir(parents=True, exist_ok=True)
         for r in files:
             self._engine.enqueue_download(r, str(mirror_local_path(base, r.path)))
+
+    def _free_up(self, resources: list[Resource]) -> None:
+        """Удаляет локальные копии скачанных файлов; файл остаётся только онлайн.
+
+        Как в Файлах: индекс «доступно офлайн» знает локальные пути.
+        """
+        if self._downloaded is None or not resources:
+            return
+        offline = [r for r in resources if self._downloaded.has(r.path)]
+        if not offline:
+            QMessageBox.information(
+                self, i18n.tr("app.title"), i18n.tr("files.free_up_none")
+            )
+            return
+
+        if not confirm(self, i18n.tr("files.free_up_confirm", n=len(offline))):
+            return
+
+        for r in offline:
+            local = self._downloaded.local_for(r.path)
+            if not local:
+                continue
+            try:
+                Path(local).unlink()
+            except OSError:
+                pass
+            self._downloaded.remove(r.path)
+        self._badges_timer.start()
 
     def _context_menu(self, global_pos, resources: list[Resource]) -> None:
         if not resources:
@@ -165,6 +196,12 @@ class RecentPage(QWidget):
             act_download = QAction(i18n.tr("ctx.download"), menu)
             act_download.triggered.connect(lambda: self._download_selected(resources))
             menu.addAction(act_download)
+        if self._downloaded is not None and any(
+            self._downloaded.has(r.path) for r in resources
+        ):
+            act_free = QAction(i18n.tr("ctx.free_up"), menu)
+            act_free.triggered.connect(lambda: self._free_up(resources))
+            menu.addAction(act_free)
         if single is not None:
             menu.addSeparator()
             act_props = QAction(i18n.tr("ctx.properties"), menu)

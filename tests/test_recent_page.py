@@ -46,7 +46,7 @@ class _Settings:
         pass
 
 
-def _page(qapp, engine, settings):
+def _page(qapp, engine, settings, downloaded=None):
     from PySide6.QtCore import QObject, Signal
 
     from ydx.services import i18n
@@ -68,7 +68,14 @@ def _page(qapp, engine, settings):
         accounts = []
         resources = None
 
-    return RecentPage(_Acc(), _Thumbs(), None, engine=engine, settings=settings)
+    return RecentPage(_Acc(), _Thumbs(), None, engine=engine,
+                      settings=settings, downloaded=downloaded)
+
+
+def i18n_tr(key: str) -> str:
+    from ydx.services import i18n
+
+    return i18n.tr(key)
 
 
 def test_download_selected_mirrors_cloud_paths(qapp, tmp_path):
@@ -134,3 +141,94 @@ def test_context_menu_no_download_for_folder(qapp, tmp_path, monkeypatch):
 
     assert _Menu.captured
     assert "Скачать" not in [a.text() for a in _Menu.captured[-1].actions()]
+
+
+# --- «Убрать с компьютера (оставить в облаке)» -----------------------------------
+
+
+class _Downloaded:
+    """Заглушка DownloadedIndex: remote_path → local_path."""
+
+    def __init__(self, mapping: dict[str, str]):
+        self._data = dict(mapping)
+        self.removed: list[str] = []
+
+    def has(self, remote_path: str) -> bool:
+        return remote_path in self._data
+
+    def local_for(self, remote_path: str) -> str | None:
+        return self._data.get(remote_path)
+
+    def remove(self, remote_path: str) -> None:
+        self._data.pop(remote_path, None)
+        self.removed.append(remote_path)
+
+
+def _free_page(qapp, tmp_path, monkeypatch, downloaded):
+    monkeypatch.setattr(
+        "ydx.ui.views.recent_page.confirm", lambda *a, **k: True
+    )
+    return _page(qapp, _Engine(), _Settings(str(tmp_path)),
+                 downloaded=downloaded)
+
+
+def test_free_up_removes_local_keeps_cloud(qapp, tmp_path, monkeypatch):
+    local = tmp_path / "a.jpg"
+    local.write_bytes(b"data")
+    downloaded = _Downloaded({"disk:/a.jpg": str(local)})
+    page = _free_page(qapp, tmp_path, monkeypatch, downloaded)
+
+    page._free_up([_res("a.jpg", "disk:/a.jpg")])
+    assert not local.exists()               # локальная копия удалена
+    assert downloaded.removed == ["disk:/a.jpg"]   # из индекса offline убрана
+
+
+def test_free_up_without_downloaded_shows_info(qapp, tmp_path, monkeypatch):
+    """Незнакомый файл не удаляем: просто сообщение, ничего не трогаем."""
+    downloaded = _Downloaded({})
+    page = _free_page(qapp, tmp_path, monkeypatch, downloaded)
+
+    from PySide6.QtWidgets import QMessageBox
+
+    shown = []
+    monkeypatch.setattr(
+        QMessageBox, "information",
+        lambda *a, **k: shown.append(True) or QMessageBox.StandardButton.Ok,
+    )
+    page._free_up([_res("a.jpg", "disk:/a.jpg")])
+    assert shown
+    assert downloaded.removed == []
+
+
+def test_context_menu_free_up_only_for_downloaded(qapp, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMenu
+
+    class _Menu(QMenu):
+        captured: list[QMenu] = []
+
+        def exec(self, pos=None):
+            _Menu.captured.append(self)
+            return None
+
+    monkeypatch.setattr("ydx.ui.views.recent_page.QMenu", _Menu)
+    monkeypatch.setattr(
+        "ydx.ui.views.recent_page.confirm", lambda *a, **k: True
+    )
+
+    local = tmp_path / "a.jpg"
+    local.write_bytes(b"data")
+    label = i18n_tr("ctx.free_up")
+
+    # скачанный файл → пункт есть, триггер удаляет локальную копию
+    downloaded = _Downloaded({"disk:/a.jpg": str(local)})
+    page = _page(qapp, _Engine(), _Settings(str(tmp_path)),
+                 downloaded=downloaded)
+    page._context_menu(None, [_res("a.jpg", "disk:/a.jpg")])
+    act = next(a for a in _Menu.captured[-1].actions() if a.text() == label)
+    act.trigger()
+    assert not local.exists()
+
+    # не скачанный → пункта нет
+    _Menu.captured.clear()
+    page._context_menu(None, [_res("b.jpg", "disk:/b.jpg")])
+    assert label not in [a.text() for a in _Menu.captured[-1].actions()]

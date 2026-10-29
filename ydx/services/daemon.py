@@ -73,10 +73,16 @@ class DaemonController(QObject):
             passwd.chmod(0o600)
         except OSError:
             pass
-        write_config(DAEMON_CONFIG_FILE, {
+        updates = {
             "dir": sync_dir,
             "auth": str(passwd),
-        })
+        }
+        # Автоопределение прокси роняет демон по SIGSEGV на новых Ubuntu
+        # (встроенный libproxy со статической glib конфликтует с системной),
+        # поэтому отключаем — если пользователь не задал прокси сам.
+        if "proxy" not in cfg:
+            updates["proxy"] = "no"
+        write_config(DAEMON_CONFIG_FILE, updates)
         return True
 
     def apply_config(self, updates: dict[str, str]) -> None:

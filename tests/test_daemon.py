@@ -4,6 +4,8 @@ from __future__ import annotations
 
 from pathlib import Path
 
+import pytest
+
 from ydx.core.daemon_config import (
     exclude_dirs_str,
     parse_exclude_dirs,
@@ -116,3 +118,55 @@ def test_config_roundtrip_preserves_foreign(tmp_path: Path):
 def test_exclude_dirs_helpers():
     assert exclude_dirs_str(["a", " b/ ", "", "/c/"]) == "a,b,c"
     assert parse_exclude_dirs("a, b ,,c") == ["a", "b", "c"]
+
+
+# --- ensure_config: proxy=no против SIGSEGV демона -------------------------------
+
+
+@pytest.fixture()
+def qapp():
+    import os
+
+    os.environ.setdefault("QT_QPA_PLATFORM", "offscreen")
+    from PySide6.QtWidgets import QApplication
+
+    return QApplication.instance() or QApplication([])
+
+
+def _controller(qapp, monkeypatch, tmp_path, cfg_text: str | None):
+    import ydx.services.daemon as daemon_mod
+
+    monkeypatch.setattr(daemon_mod, "DAEMON_CONFIG_FILE", tmp_path / "daemon.cfg")
+    if cfg_text is not None:
+        (tmp_path / "daemon.cfg").write_text(cfg_text, "utf-8")
+
+    class _Acc:
+        def current_token(self):
+            return "TOKEN"
+
+    return daemon_mod.DaemonController(_Acc())
+
+
+def test_ensure_config_adds_proxy_no(qapp, monkeypatch, tmp_path):
+    """Без proxy в конфиге пишем proxy=no: автоопределение прокси роняет
+    демон по SIGSEGV на новых Ubuntu (конфликт встроенной и системной glib)."""
+    ctrl = _controller(
+        qapp, monkeypatch, tmp_path,
+        "read-only=false\ndir=/tmp/sync\n",
+    )
+    assert ctrl.ensure_config()
+    cfg = read_config(tmp_path / "daemon.cfg")
+    assert cfg["proxy"] == "no"
+    assert cfg["dir"] == "/tmp/sync"          # свою папку не трогаем
+    assert cfg["read-only"] == "false"
+
+
+def test_ensure_config_keeps_user_proxy(qapp, monkeypatch, tmp_path):
+    """Прокси, заданный пользователем, не перезаписываем."""
+    ctrl = _controller(
+        qapp, monkeypatch, tmp_path,
+        "proxy=https://user:pw@proxy.lan:3128\n",
+    )
+    assert ctrl.ensure_config()
+    cfg = read_config(tmp_path / "daemon.cfg")
+    assert cfg["proxy"] == "https://user:pw@proxy.lan:3128"
