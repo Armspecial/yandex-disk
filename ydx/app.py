@@ -75,6 +75,13 @@ def main(argv: list[str] | None = None) -> int:
     i18n.load(settings.language)
     apply_theme(app, settings.theme)
 
+    # старые версии могли оставить демон yandex-disk работать в фоне —
+    # синхронизации больше нет, останавливаем его (best-effort, не блокирует старт)
+    from ydx.services.daemon_stop import stop_leftover_daemon
+
+    if stop_leftover_daemon():
+        logging.getLogger(__name__).info("осиротевший демон yandex-disk остановлен")
+
     # --- single instance: второй запуск поднимает существующее окно -------------
     from PySide6.QtNetwork import QLocalServer, QLocalSocket
 
