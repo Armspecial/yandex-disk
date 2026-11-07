@@ -19,6 +19,7 @@ from ydx.constants import TRANSFER_SLOTS, UPLOAD_SETTLE_DELAY
 from ydx.core.api_resources import ResourcesApi
 from ydx.core.errors import CancelledError, ConflictError
 from ydx.core.models import TransferTask
+from ydx.core.rate import Speedometer
 
 CHUNK = 256 * 1024
 
@@ -60,12 +61,24 @@ class TransferEngine(QObject):
         self._ids = itertools.count(1)
         self._lock = threading.Lock()
         self._batch_pending = False
+        self._meters: dict[int, Speedometer] = {}
 
     # --- API ---------------------------------------------------------------------
 
     @property
     def tasks(self) -> list[TransferTask]:
         return list(self._tasks)
+
+    def speed_totals(self) -> tuple[float, float]:
+        """(↓ байт/с, ↑ байт/с) по задачам в состоянии running."""
+        down = up = 0.0
+        for t in self._tasks:
+            if t.state == "running":
+                if t.kind == "download":
+                    down += t.speed_bps
+                else:
+                    up += t.speed_bps
+        return down, up
 
     def _resources(self) -> ResourcesApi:
         resources = self._accounts.resources
@@ -161,12 +174,16 @@ class TransferEngine(QObject):
         for t in self._tasks:
             if t.id == task_id and t.state == "running":
                 t.state = "paused"
+                t.speed_bps = 0.0
+                self._meters.setdefault(task_id, Speedometer()).reset()
                 self.task_updated.emit(task_id)
 
     def resume(self, task_id: int) -> None:
         for t in self._tasks:
             if t.id == task_id and t.state == "paused":
                 t.state = "running"
+                t.speed_bps = 0.0
+                self._meters.setdefault(task_id, Speedometer()).reset()
                 self.task_updated.emit(task_id)
 
     def cancel(self, task_id: int) -> None:
@@ -184,8 +201,10 @@ class TransferEngine(QObject):
             if t.id == task_id and t.state in ("error", "cancelled", "conflict"):
                 t.state = "queued"
                 t.transferred = 0
+                t.speed_bps = 0.0
                 t.error = None
                 t.overwrite = overwrite
+                self._meters.setdefault(task_id, Speedometer()).reset()
                 self._queue.append(t)
                 self.task_updated.emit(task_id)
         self._kick()
@@ -194,6 +213,8 @@ class TransferEngine(QObject):
         self._tasks = [
             t for t in self._tasks if t.state in ("queued", "running", "paused")
         ]
+        alive = {t.id for t in self._tasks}
+        self._meters = {tid: m for tid, m in self._meters.items() if tid in alive}
         self.tasks_changed.emit()
 
     # --- исполнитель -----------------------------------------------------------------
@@ -258,10 +279,14 @@ class TransferEngine(QObject):
         task.transferred += nbytes
         if force_total and not task.size:
             task.size = force_total
+        task.speed_bps = self._meters.setdefault(task.id, Speedometer()).update(
+            task.transferred)
         self.task_updated.emit(task.id)
 
     def _task_finished(self, task: TransferTask) -> None:
         task.state = "done"
+        task.speed_bps = 0.0
+        self._meters.pop(task.id, None)
         with self._lock:
             self._active.discard(task.id)
         self.task_updated.emit(task.id)
@@ -269,6 +294,8 @@ class TransferEngine(QObject):
         self._after_step()
 
     def _task_failed(self, task: TransferTask, exc: Exception) -> None:
+        task.speed_bps = 0.0
+        self._meters.pop(task.id, None)
         if isinstance(exc, CancelledError):
             task.state = "cancelled"
             self._cleanup_part(task)

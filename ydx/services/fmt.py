@@ -29,6 +29,36 @@ def human_speed(bps: float | None) -> str:
     return human_size(bps or 0) + "/с" if i18n.current_language() == "ru" else human_size(bps or 0) + "/s"
 
 
+def human_eta(seconds: float | None) -> str:
+    """Оставшееся время: «45 с» / «1 мин 12 с» / «1 ч 04 мин» (en: «45 s» / «1m 12s» / «1h 04m»)."""
+    if seconds is None or seconds < 0:
+        return "—"
+    ru = i18n.current_language() == "ru"
+    total = int(seconds + 0.5)
+    if total < 60:
+        return f"{total} с" if ru else f"{total} s"
+    minutes, sec = divmod(total, 60)
+    if minutes < 60:
+        if sec:
+            return f"{minutes} мин {sec:02d} с" if ru else f"{minutes}m {sec:02d}s"
+        return f"{minutes} мин" if ru else f"{minutes}m"
+    hours, minutes = divmod(minutes, 60)
+    if hours < 24:
+        return f"{hours} ч {minutes:02d} мин" if ru else f"{hours}h {minutes:02d}m"
+    days, hours = divmod(hours, 24)
+    return f"{days} дн {hours:02d} ч" if ru else f"{days}d {hours:02d}h"
+
+
+def transfer_speeds_text(down_bps: float, up_bps: float) -> str:
+    """Суммарные скорости передач для полосы/трея: «↓ 10,5 МБ/с · ↑ 2,1 МБ/с»."""
+    parts = []
+    if down_bps > 0:
+        parts.append("↓ " + human_speed(down_bps))
+    if up_bps > 0:
+        parts.append("↑ " + human_speed(up_bps))
+    return " · ".join(parts)
+
+
 def human_date(dt: datetime | None, now: float | None = None) -> str:
     """Относительная дата как в веб-интерфейсе: «сегодня в 12:30», «5 окт 2025»."""
     if dt is None:

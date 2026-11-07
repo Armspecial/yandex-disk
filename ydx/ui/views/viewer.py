@@ -267,30 +267,6 @@ class PhotoViewer(QDialog):
         painter.end()
 
 
-class _Speedometer:
-    """Скорость загрузки (EMA по полусекундным окнам) для прогресса."""
-
-    def __init__(self) -> None:
-        self._t0: float | None = None
-        self._done0 = 0
-        self.speed = 0.0                     # байт/с
-
-    def update(self, done: int) -> float:
-        import time
-
-        now = time.time()
-        if self._t0 is None:
-            self._t0 = now
-            self._done0 = done
-            return self.speed
-        dt = now - self._t0
-        if dt >= 0.5:
-            self.speed = max(0.0, (done - self._done0) / dt)
-            self._t0 = now
-            self._done0 = done
-        return self.speed
-
-
 def open_in_system_player(path: str) -> bool:
     """Открыть видео внешним плеером.
 
@@ -389,7 +365,8 @@ class VideoViewer(QDialog):
         from ydx.services.workers import run_in_thread
 
         self._set_status(i18n.tr("viewer.loading_video"))
-        speedometer = _Speedometer()
+        from ydx.core.rate import Speedometer
+        speedometer = Speedometer()
 
         def job() -> dict:
             return openers.unlim_download(
@@ -412,7 +389,8 @@ class VideoViewer(QDialog):
         from ydx.services.workers import run_in_thread
 
         self._set_status(i18n.tr("viewer.loading_video"))
-        speedometer = _Speedometer()
+        from ydx.core.rate import Speedometer
+        speedometer = Speedometer()
 
         def job():
             return openers._download(
