@@ -166,3 +166,55 @@ def test_mirror_local_path():
     assert str(p) == "/home/u/Yandex Disk/Фото2026/клип.mp4"
     p2 = mirror_local_path("/home/u/Yandex Disk", "disk:/file.txt")
     assert str(p2) == "/home/u/Yandex Disk/file.txt"
+
+
+def test_transfer_task_speed_default():
+    from ydx.core.models import TransferTask
+
+    task = TransferTask(id=1, kind="download")
+    assert task.speed_bps == 0.0
+
+
+def test_speed_totals_running_only(sync_engine):
+    from ydx.core.models import TransferTask
+
+    make, _tmp = sync_engine
+    engine, _res = make({})
+    engine._tasks = [
+        TransferTask(id=1, kind="download", state="running", speed_bps=100.0),
+        TransferTask(id=2, kind="upload", state="running", speed_bps=50.0),
+        TransferTask(id=3, kind="download", state="paused", speed_bps=100.0),
+        TransferTask(id=4, kind="upload", state="done", speed_bps=100.0),
+    ]
+    assert engine.speed_totals() == (100.0, 50.0)
+
+
+def test_download_measures_and_zeroes_speed(sync_engine, tmp_path):
+    """Скорость появляется в процессе и обнуляется на финише."""
+    make, _ = sync_engine
+    engine, _res = make({})
+    from ydx.core.models import Resource
+
+    r = Resource(name="f.bin", type="file", path="disk:/f.bin", size=4)
+    engine.enqueue_download(r, str(tmp_path / "f.bin"))
+    task = engine.tasks[0]
+    assert task.state == "done"
+    assert task.speed_bps == 0.0
+    assert engine._meters == {}       # измеритель убран за ненадобностью
+
+
+def test_retry_resets_speed(sync_engine, monkeypatch):
+    from ydx.core.models import TransferTask
+    from ydx.core.rate import Speedometer
+
+    monkeypatch.setattr("ydx.services.transfers.TRANSFER_SLOTS", 0)
+    make, _tmp = sync_engine
+    engine, _res = make({})
+    engine._tasks = [TransferTask(id=7, kind="download", state="error",
+                                  speed_bps=123.0, transferred=10)]
+    engine._meters[7] = Speedometer()
+    engine.retry(7)
+    task = engine.tasks[0]
+    assert task.state == "queued"    # 0 слотов — не запускается, проверяем сам сброс
+    assert task.transferred == 0
+    assert task.speed_bps == 0.0
