@@ -1,9 +1,8 @@
-"""Главное окно: сайдбар + стек разделов, меню аккаунта, цикл входа.
-
-M1: каркас с плейсхолдерами разделов; разделы наполняются в M2–M5.
-"""
+"""Главное окно: сайдбар + стек разделов, меню аккаунта, цикл входа."""
 
 from __future__ import annotations
+
+import time
 
 from PySide6.QtCore import Qt, QTimer
 from PySide6.QtGui import QAction, QKeySequence, QShortcut
@@ -21,10 +20,11 @@ from PySide6.QtWidgets import (
 from ydx.core.models import Account, Quota
 from ydx.services import i18n
 from ydx.services.accounts import AVATAR_COLORS, AccountManager
+from ydx.services.fmt import transfer_speeds_text
 from ydx.services.settings import AppSettings
 from ydx.ui.dialogs.login import LoginDialog
 from ydx.ui.sidebar import SECTIONS, Sidebar
-from ydx.ui.widgets import icon, make_avatar
+from ydx.ui.widgets import make_avatar
 
 PLACEHOLDER_PAGES = ("files", "recent", "photos", "shares", "transfers", "trash")
 
@@ -41,9 +41,13 @@ class MainWindow(QMainWindow):
 
         central = QWidget()
         central.setObjectName("centralWrap")
-        layout = QHBoxLayout(central)
+        outer = QVBoxLayout(central)
+        outer.setContentsMargins(0, 0, 0, 0)
+        outer.setSpacing(0)
+        layout = QHBoxLayout()
         layout.setContentsMargins(0, 0, 0, 0)
         layout.setSpacing(0)
+        outer.addLayout(layout, 1)
 
         self.sidebar = Sidebar()
         layout.addWidget(self.sidebar)
@@ -55,6 +59,20 @@ class MainWindow(QMainWindow):
             self._pages[key] = page
             self.stack.addWidget(page)
         layout.addWidget(self.stack, 1)
+
+        # --- нижняя полоса скоростей передач (видна, пока что-то качается) ----
+        self.transfer_strip = QWidget()
+        self.transfer_strip.setObjectName("transferStrip")
+        strip_lay = QHBoxLayout(self.transfer_strip)
+        strip_lay.setContentsMargins(14, 6, 14, 6)
+        self.transfer_strip_label = QLabel()
+        self.transfer_strip_label.setObjectName("dialogHint")
+        self.transfer_strip_label.setCursor(Qt.CursorShape.PointingHandCursor)
+        self.transfer_strip_label.setToolTip(i18n.tr("nav.transfers"))
+        self.transfer_strip_label.mousePressEvent = lambda _e: self._goto_transfers()
+        strip_lay.addWidget(self.transfer_strip_label, 1)
+        self.transfer_strip.hide()
+        outer.addWidget(self.transfer_strip)
 
         # --- страница «Вы вышли из аккаунта» (после logout / без аккаунта) -----
         from PySide6.QtWidgets import QPushButton as _QPushButton
@@ -137,7 +155,15 @@ class MainWindow(QMainWindow):
         # область уведомлений (после engine — трей показывает скорости передач)
         from ydx.ui.tray import TrayController
 
-        self.tray = TrayController(self, accounts)
+        self.tray = TrayController(self, accounts, self.engine)
+
+        # нижняя полоса скоростей: обновляется по прогрессу (с троттлингом),
+        # появление/скрытие — мгновенно по смене состава задач
+        self._strip_last = 0.0
+        self.engine.task_updated.connect(self._on_transfer_progress)
+        self.engine.tasks_changed.connect(self._update_transfer_strip)
+        self.engine.task_done.connect(lambda _t: self._update_transfer_strip())
+        self.engine.task_error.connect(lambda _t: self._update_transfer_strip())
 
         # скачанный файл изменили локально → перезалить в облако
         self.downloaded_index.file_changed.connect(self._reupload_changed)
@@ -197,6 +223,27 @@ class MainWindow(QMainWindow):
 
         # Ctrl+W — закрыть окно (в трей), как кнопкой «✕»
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
+
+    def _goto_transfers(self) -> None:
+        """Клик по полосе скоростей — открыть раздел «Передачи»."""
+        self.sidebar.set_section("transfers")
+        self._show_section("transfers")
+
+    def _on_transfer_progress(self, task_id: int) -> None:
+        now = time.monotonic()
+        if now - self._strip_last < 0.3:   # не чаще ~3 раз в секунду
+            return
+        self._strip_last = now
+        self._update_transfer_strip()
+
+    def _update_transfer_strip(self) -> None:
+        """Полоса внизу: суммарные ↓/↑, пока есть активные задачи."""
+        active = any(t.state == "running" for t in self.engine.tasks)
+        self.transfer_strip.setVisible(active)
+        if not active:
+            return
+        text = transfer_speeds_text(*self.engine.speed_totals())
+        self.transfer_strip_label.setText(text or i18n.tr("transfers.strip_active"))
 
     def _on_task_done(self, task) -> None:
         """Скачали файл → индекс офлайн-копий + значок + уведомление."""
@@ -341,6 +388,8 @@ class MainWindow(QMainWindow):
 
     def retranslate(self) -> None:
         self.setWindowTitle(i18n.tr("app.title"))
+        self.transfer_strip_label.setToolTip(i18n.tr("nav.transfers"))
+        self._update_transfer_strip()
         for label in self._signed_out_page.findChildren(QLabel):
             key = label.property("i18n_key")
             if key:

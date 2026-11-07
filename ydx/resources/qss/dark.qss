@@ -281,5 +281,5 @@ QFrame#methodRow QLabel { background: transparent; }
 #sidebar QWidget, QFrame#methodRow QWidget, #accountBtn QWidget { background: transparent; }
 
 /* --- Нижний баннер синхронизации -------------------------------------------------- */
-#syncBanner { background: #1C1E22; border-top: 1px solid #2A2D33; }
-#syncBanner QLabel { background: transparent; }
+#transferStrip { background: #1C1E22; border-top: 1px solid #2A2D33; }
+#transferStrip QLabel { background: transparent; }
