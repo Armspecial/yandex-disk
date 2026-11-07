@@ -79,10 +79,10 @@ def test_error_center_dedup_and_clear(qapp):
     center.changed.connect(lambda: changed.append(1))
     center.report("files", "ошибка")
     center.report("files", "ошибка")   # дубль подряд — не добавляется
-    center.report("sync", "другая")
+    center.report("auth", "другая")
     assert center.count == 2
     assert len(changed) == 2
     newest = center.errors[0]
-    assert newest.source == "sync"
+    assert newest.source == "auth"
     center.clear()
     assert center.count == 0

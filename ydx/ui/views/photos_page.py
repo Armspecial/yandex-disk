@@ -156,7 +156,7 @@ class PhotosPage(QWidget):
         # кнопка «Скачать» живёт выделением таймлайна
         self._wire_selection(self.timeline)
 
-        # значки состояний (offline/synced/cloud/error) — как в Файлах
+        # значки состояний (offline/cloud/error) — как в Файлах
         from PySide6.QtCore import QTimer
 
         self._badges_timer = QTimer(self)
@@ -345,7 +345,7 @@ class PhotosPage(QWidget):
         items = self.model.items
 
         def job():
-            return self._state.compute(items)[0]
+            return self._state.compute(items)
 
         def done(states) -> None:
             self.timeline.set_item_states(states)

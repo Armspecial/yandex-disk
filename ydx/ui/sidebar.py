@@ -61,7 +61,6 @@ class Sidebar(QFrame):
     section_changed = Signal(str)
     account_requested = Signal(QPoint)   # глобальная позиция — открыть меню аккаунта
     settings_requested = Signal()
-    sync_requested = Signal()
     errors_requested = Signal()
 
     def __init__(self, parent: QWidget | None = None) -> None:
@@ -139,14 +138,6 @@ class Sidebar(QFrame):
         root.addWidget(self.security_warning)
 
         root.addSpacing(6)
-
-        # --- синхронизация (демонд; скрывается, если не установлен) ---
-        self.sync_btn = QPushButton()
-        self.sync_btn.setObjectName("navBtn")
-        self.sync_btn.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.sync_btn.setIcon(icon("refresh"))
-        self.sync_btn.clicked.connect(self.sync_requested.emit)
-        root.addWidget(self.sync_btn)
 
         # --- ошибки (отдельное окно, бейдж с количеством) ---
         self.errors_btn = QPushButton()
@@ -280,7 +271,6 @@ class Sidebar(QFrame):
         for key, _ic, text_key in SECTIONS:
             self._buttons[key].setText(i18n.tr(text_key))
         self.settings_btn.setText(i18n.tr("nav.settings"))
-        self.sync_btn.setText(i18n.tr("sync.title"))
         self.errors_btn.setText(
             i18n.tr("nav.errors") + (f"  ·  {self._error_count}" if self._error_count else "")
         )

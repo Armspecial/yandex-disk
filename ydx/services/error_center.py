@@ -12,7 +12,7 @@ MAX_ITEMS = 200
 
 @dataclass
 class AppError:
-    source: str        # files | transfers | sync | auth
+    source: str        # files | transfers | auth
     message: str
     time: datetime = field(default_factory=datetime.now)
 

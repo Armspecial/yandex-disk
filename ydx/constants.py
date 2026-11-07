@@ -39,11 +39,11 @@ MAX_PAID_UPLOAD = 50 << 30     # 50 ГБ — с подпиской Яндекс 
 OPEN_SIZE_LIMIT = 500 << 20    # подтверждение открытия файлов крупнее 500 МБ
 TRANSFER_SLOTS = 3             # одновременных передач
 
-# --- Демонд yandex-disk -------------------------------------------------------
+# --- Осиротевший демон yandex-disk ---------------------------------------------
+# Синхронизации в приложении больше нет; имена нужны только для разового
+# стопа забытого демона при запуске (см. services/daemon_stop.py).
 DAEMON_BINARY = "yandex-disk"
-DAEMON_CONFIG_DIR = CONFIG_DIR
 DAEMON_CONFIG_FILE = CONFIG_DIR / "daemon.cfg"
-OFFICIAL_DAEMON_DIR = Path.home() / ".config" / "yandex-disk"
 
 # --- Палитра (бренд Яндекса) --------------------------------------------------
 ACCENT = "#FFCC00"      # жёлтый

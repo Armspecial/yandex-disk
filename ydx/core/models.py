@@ -105,18 +105,6 @@ class TokenBundle:
 
 
 @dataclass
-class DaemonStatus:
-    state: str = "unknown"          # unknown|stopped|idle|busy|paused|index|no-internet|error
-    progress: str = ""              # «45% (10 MB/s)» — сырая строка демона
-    last_items: list[str] = field(default_factory=list)
-    total: int = 0                  # байты, занятые на Диске (по данным демона)
-    used: int = 0
-    free: int = 0
-    trash: int = 0
-    raw: str = ""
-
-
-@dataclass
 class TransferTask:
     """Задача передачи (upload/download)."""
 
@@ -126,6 +114,7 @@ class TransferTask:
     remote_path: str = ""           # 'disk:/...'
     size: int = 0
     transferred: int = 0
+    speed_bps: float = 0.0          # измеренная скорость (0 = ещё не измерена)
     state: str = "queued"           # queued|running|paused|done|error|conflict|cancelled
     error: str | None = None
     overwrite: bool = False

@@ -105,14 +105,6 @@ class FilesPage(QWidget):
         self.stack.addWidget(self.empty_label)    # 2 — пусто/нет совпадений
         col.addWidget(self.stack, 1)
 
-        # полоса «есть только на компьютере» (не выгружено в облако)
-        self.local_strip = QLabel()
-        self.local_strip.setObjectName("statusChip")
-        self.local_strip.setWordWrap(True)
-        self.local_strip.setMargin(8)
-        self.local_strip.hide()
-        col.addWidget(self.local_strip)
-
         self._mode = settings.get("view_mode")
         self._sort = settings.get("sort")
         self.view.set_mode(self._mode)
@@ -148,7 +140,7 @@ class FilesPage(QWidget):
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
 
-        # значки синхронизации — после прихода данных, с дебаунсом
+        # значки состояний (offline/error) — после прихода данных, с дебаунсом
         # (modelReset и rowsInserted стреляют до/во время вставки)
         from PySide6.QtCore import QTimer
 
@@ -159,9 +151,6 @@ class FilesPage(QWidget):
         self.model.modelReset.connect(lambda: self._sync_refresh_timer.start())
         self.model.rowsInserted.connect(lambda *_: self._sync_refresh_timer.start())
 
-        from ydx.services.sync_state import LocalSyncIndex
-
-        self._sync_index = LocalSyncIndex(self)
         if self._downloaded is not None:
             self._downloaded.index_changed.connect(
                 lambda: self._sync_refresh_timer.start()
@@ -235,10 +224,10 @@ class FilesPage(QWidget):
         else:
             self.stack.setCurrentWidget(self.view)
 
-    # --- значки синхронизации и «только на компьютере» ------------------------
+    # --- значки состояний (offline/error) ---------------------------------------
 
     def _refresh_sync_states(self) -> None:
-        """Состояния файлов: offline (скачан) / synced (демон) / cloud."""
+        """Состояния файлов: offline (скачан) / error (✖) / cloud."""
         if self.model.loading:
             self._sync_refresh_timer.start()   # данные ещё грузимся — подождём
             return
@@ -247,8 +236,6 @@ class FilesPage(QWidget):
         def job():
             downloaded = self._downloaded
             failed = self._failed
-            sync_index = self._sync_index
-            sync_on = sync_index.is_configured()
             failed_paths = failed.paths if failed is not None else []
             states: dict[str, str] = {}
             for r in resources:
@@ -256,8 +243,6 @@ class FilesPage(QWidget):
                     states[r.path] = "error"
                 elif downloaded is not None and downloaded.has(r.path):
                     states[r.path] = "offline"
-                elif sync_on and sync_index.exists_locally(r.path):
-                    states[r.path] = "synced"
                 else:
                     states[r.path] = "cloud"
             # файл с ошибкой лежит в папке — папка (и все родители повыше) тоже с ✖
@@ -267,31 +252,10 @@ class FilesPage(QWidget):
                 prefix = r.path.rstrip("/") + "/"
                 if any(fp.startswith(prefix) for fp in failed_paths):
                     states[r.path] = "error"
-            local_only = []
-            if sync_on:
-                cloud_names = {r.name for r in resources}
-                local_only = [
-                    (name, is_dir)
-                    for name, is_dir in sync_index.local_only_for(self._current)
-                    if name not in cloud_names
-                ]
-            return states, local_only
+            return states
 
-        def done(result) -> None:
-            states, local_only = result
+        def done(states) -> None:
             self.view.set_item_states(states)
-            if local_only:
-                names = ", ".join(
-                    (n + "/" if d else n) for n, d in local_only[:12]
-                )
-                more = len(local_only) - 12
-                text = i18n.tr("sync.local_only") + ": " + names
-                if more > 0:
-                    text += i18n.tr("sync.local_only_more", n=more)
-                self.local_strip.setText(text)
-                self.local_strip.show()
-            else:
-                self.local_strip.hide()
 
         run_in_thread(job, done, lambda _e: None)
 
@@ -364,11 +328,7 @@ class FilesPage(QWidget):
     # --- «убрать с компьютера» (локальную копию удалить, в облаке оставить) ----
 
     def _free_up(self, resources: list[Resource]) -> None:
-        """Удаляет локальные копии скачанных файлов; файл остаётся только онлайн.
-
-        Файлы из папки синхронизации демона пропускаются: их локальное
-        удаление демонд счёл бы удалением и в облаке.
-        """
+        """Удаляет локальные копии скачанных файлов; файл остаётся только онлайн."""
         if self._downloaded is None or not resources:
             return
         offline = [r for r in resources if self._downloaded.has(r.path)]
@@ -377,7 +337,6 @@ class FilesPage(QWidget):
 
             QMessageBox.information(self, i18n.tr("app.title"), i18n.tr("files.free_up_none"))
             return
-        skipped = len(resources) - len(offline)
 
         if not confirm(self, i18n.tr("files.free_up_confirm", n=len(offline))):
             return
@@ -394,13 +353,6 @@ class FilesPage(QWidget):
                 pass
             self._downloaded.remove(r.path)
 
-        if skipped:
-            from PySide6.QtWidgets import QMessageBox
-
-            QMessageBox.information(
-                self, i18n.tr("app.title"),
-                i18n.tr("files.free_up_skipped_synced", n=skipped),
-            )
         self._sync_refresh_timer.start()
 
     def _update_free_up_button(self) -> None:

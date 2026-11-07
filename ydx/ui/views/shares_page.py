@@ -84,7 +84,7 @@ class SharesPage(QWidget):
             return
 
         def job():
-            return self._state.compute(self.model.items)[0]
+            return self._state.compute(self.model.items)
 
         def done(states) -> None:
             self.view.set_item_states(states)

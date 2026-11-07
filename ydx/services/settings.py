@@ -34,7 +34,6 @@ DEFAULTS = {
     "last_upload_dir": "",
     "show_unlim": True,           # безлимитная автозагрузка в разделе «Фото»
     "photo_tile": 176,            # размер плиток таймлайна «Фото», px
-    "sync_autostart": True,       # демон синхронизации стартует вместе с приложением
 }
 
 _BOOL = {"true", "false"}

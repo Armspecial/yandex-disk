@@ -28,20 +28,6 @@ from ydx.ui.widgets import icon, make_avatar
 
 PLACEHOLDER_PAGES = ("files", "recent", "photos", "shares", "transfers", "trash")
 
-# состояния, в которых демон уже работает — стартовать не нужно
-_SYNC_RUNNING_STATES = ("idle", "busy", "paused", "index")
-
-
-def should_autostart_sync(installed: bool, has_account: bool, enabled: bool, state: str) -> bool:
-    """Запускать ли демон при старте приложения/входе: только если он
-    установлен, есть активный аккаунт, галочка включена и он ещё не работает."""
-    return (
-        installed
-        and has_account
-        and enabled
-        and state not in _SYNC_RUNNING_STATES
-    )
-
 
 class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings, accounts: AccountManager) -> None:
@@ -98,33 +84,6 @@ class MainWindow(QMainWindow):
         so_col.addStretch(3)
         self.stack.addWidget(self._signed_out_page)
 
-        # --- нижний баннер синхронизации: проценты и скорость ------------------
-        from PySide6.QtWidgets import QHBoxLayout as _HBox
-        from PySide6.QtWidgets import QProgressBar, QPushButton as _Btn
-
-        self.sync_banner = QWidget()
-        self.sync_banner.setObjectName("syncBanner")
-        banner_lay = _HBox(self.sync_banner)
-        banner_lay.setContentsMargins(14, 6, 14, 6)
-        banner_lay.setSpacing(10)
-        self.sync_banner_label = QLabel()
-        self.sync_banner_label.setCursor(Qt.CursorShape.PointingHandCursor)
-        self.sync_banner_label.setObjectName("dialogHint")
-        self.sync_banner_bar = QProgressBar()
-        self.sync_banner_bar.setTextVisible(False)
-        self.sync_banner_bar.setFixedHeight(6)
-        self.sync_banner_bar.setFixedWidth(220)
-        self.sync_banner_sync_btn = _Btn()
-        self.sync_banner_sync_btn.setProperty("class", "icon")
-        self.sync_banner_sync_btn.setIcon(icon("refresh"))
-        self.sync_banner_sync_btn.clicked.connect(self._sync_now)
-        self.sync_banner_label.mousePressEvent = lambda _e: self.show_sync_dialog()
-        banner_lay.addWidget(self.sync_banner_label, 1)
-        banner_lay.addWidget(self.sync_banner_bar)
-        banner_lay.addWidget(self.sync_banner_sync_btn)
-        self.sync_banner.hide()
-        layout.addWidget(self.sync_banner)
-
         self.setCentralWidget(central)
 
         # безлимитная автозагрузка (внутреннее web-API по кукам) — до превью:
@@ -143,21 +102,6 @@ class MainWindow(QMainWindow):
         self.sidebar.section_changed.connect(self._show_section)
         self.sidebar.settings_requested.connect(self._open_settings)
         self.sidebar.account_requested.connect(self._show_account_menu)
-        self.sidebar.sync_requested.connect(self.show_sync_dialog)
-
-        # демон yandex-disk (опционален) + область уведомлений
-        from ydx.services.daemon import DaemonController
-        from ydx.ui.tray import TrayController
-
-        self.daemon = DaemonController(accounts)
-        self.sidebar.sync_btn.setVisible(self.daemon.installed)
-        self.daemon.availability_changed.connect(self.sidebar.sync_btn.setVisible)
-        self._last_daemon_state = "unknown"
-        if self.daemon.installed:
-            self.daemon.watch()
-            self.daemon.status_updated.connect(self._on_daemon_status_banner)
-        self.tray = TrayController(self, accounts, self.daemon)
-        self._autostart_sync()   # accounts.start() в app.py срабатывает ДО конструктора
 
         accounts.accounts_changed.connect(self._on_accounts_changed)
         accounts.active_changed.connect(self._on_active_changed)
@@ -189,6 +133,11 @@ class MainWindow(QMainWindow):
 
         self.downloaded_index = DownloadedIndex(self)
         self.engine = TransferEngine(accounts)
+
+        # область уведомлений (после engine — трей показывает скорости передач)
+        from ydx.ui.tray import TrayController
+
+        self.tray = TrayController(self, accounts)
 
         # скачанный файл изменили локально → перезалить в облако
         self.downloaded_index.file_changed.connect(self._reupload_changed)
@@ -248,50 +197,6 @@ class MainWindow(QMainWindow):
 
         # Ctrl+W — закрыть окно (в трей), как кнопкой «✕»
         QShortcut(QKeySequence("Ctrl+W"), self, activated=self.close)
-
-    def _autostart_sync(self) -> None:
-        """Запустить демон, если пользователь включил «всегда синхронизировать».
-
-        Идемпотентно: на работающем демоне `yandex-disk start` безвреден,
-        а гард по состоянию исключает лишние вызовы при смене аккаунта.
-        """
-        if should_autostart_sync(
-            self.daemon.installed,
-            self._accounts.active is not None,
-            bool(self._settings.get("sync_autostart")),
-            self._last_daemon_state,
-        ):
-            self.daemon.start()
-
-    def _on_daemon_status_banner(self, status) -> None:
-        """Нижний баннер: проценты и скорость, пока идёт синхронизация."""
-        self._last_daemon_state = status.state
-        active = status.state in ("busy", "index")
-        self.sync_banner.setVisible(active)
-        if not active:
-            return
-        from ydx.core.daemon_status import sync_percent, sync_speed
-
-        text = i18n.tr(f"sync.state.{status.state}")
-        pct = sync_percent(status.progress)
-        speed = sync_speed(status.progress)
-        if status.state == "error" and status.progress:
-            self.error_center.report("sync", status.progress)
-        if pct is not None:
-            text += f" {pct:.0f}%"
-        if speed:
-            text += f" · {speed}"
-        self.sync_banner_label.setText(text)
-        if pct is None:
-            self.sync_banner_bar.setRange(0, 0)      # неопределённый прогресс
-            self.sync_banner_bar.setValue(0)
-        else:
-            self.sync_banner_bar.setRange(0, 100)
-            self.sync_banner_bar.setValue(int(pct))
-
-    def _sync_now(self) -> None:
-        if self.daemon.installed:
-            self.daemon.sync_now()
 
     def _on_task_done(self, task) -> None:
         """Скачали файл → индекс офлайн-копий + значок + уведомление."""
@@ -375,7 +280,6 @@ class MainWindow(QMainWindow):
             self.stack.setCurrentWidget(self._pages.get("files", self._pages["files"]))
             self.sidebar.set_section("files")
             self._accounts.refresh_quota()
-            self._autostart_sync()
 
     def _show_account_menu(self, global_pos) -> None:
         menu = QMenu(self)
@@ -425,32 +329,13 @@ class MainWindow(QMainWindow):
         from ydx.ui.dialogs.settings_dlg import SettingsDialog
 
         dlg = SettingsDialog(self._settings, QApplication.instance(), self,
-                             daemon=self.daemon, accounts=self._accounts,
+                             accounts=self._accounts,
                              unlim=self.unlim)
         dlg.set_secure(self._token_secure)
         dlg.exec()
-        # страховка: отписаться от статуса, даже если closeEvent не дошёл
-        if hasattr(dlg, "_on_daemon_status"):
-            try:
-                self.daemon.status_updated.disconnect(dlg._on_daemon_status)
-            except (RuntimeError, TypeError):
-                pass
         dlg.deleteLater()
         if self._accounts.active is None:
             QTimer.singleShot(0, self.show_login)
-
-    def show_sync_dialog(self) -> None:
-        from ydx.ui.panels.sync_panel import SyncDialog
-
-        if self.daemon.installed:
-            dlg = SyncDialog(self.daemon, self._accounts.resources, self)
-            dlg.exec()
-            # разорвать связь с 2-секундными обновлениями статуса + убрать диалог
-            try:
-                self.daemon.status_updated.disconnect(dlg._on_status)
-            except (RuntimeError, TypeError):
-                pass
-            dlg.deleteLater()
 
     # --- прочее ------------------------------------------------------------------------------
 
@@ -493,6 +378,4 @@ class MainWindow(QMainWindow):
                     QSystemTrayIcon.MessageIcon.Information,
                 )
             return
-        if hasattr(self, "daemon"):
-            self.daemon.shutdown()
         super().closeEvent(event)

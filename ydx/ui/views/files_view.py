@@ -31,8 +31,7 @@ def _sel_colors() -> tuple[QColor, QColor]:
 
 
 class FilesDelegate(QStyledItemDelegate):
-    """Значки состояний: 'offline' (скачан, синяя стрелка), 'synced'
-    (синхронизирован демоном, зелёная галочка), 'cloud' (только в облаке)."""
+    """Значки состояний: 'offline' (скачан, синяя стрелка), 'cloud' (только в облаке)."""
 
     def __init__(self, thumbs: ThumbService, parent=None) -> None:
         super().__init__(parent)
@@ -138,7 +137,6 @@ class FilesDelegate(QStyledItemDelegate):
 
         error   — красный диск с ✖ (последняя операция с файлом не удалась);
         offline — синий диск со стрелкой «скачан на компьютер»;
-        synced  — зелёный диск с галочкой (синхронизирован демоном);
         cloud   — тёмно-серый диск с облаком (только онлайн).
         """
         state = self.item_states.get(r.path)
@@ -167,12 +165,6 @@ class FilesDelegate(QStyledItemDelegate):
             p.drawLine(ix - 2, iy - 1, ix, iy + 1)
             p.drawLine(ix + 2, iy - 1, ix, iy + 1)
             p.drawLine(int(cx) - 3, iy + 4, int(cx) + 3, iy + 4)  # «лоток» компьютера
-        elif state == "synced":
-            p.setBrush(QColor("#1DA740"))
-            p.drawEllipse(x, y, d, d)
-            p.setPen(white)
-            p.drawLine(int(cx) - 4, int(cy), int(cx) - 1, int(cy) + 3)
-            p.drawLine(int(cx) - 1, int(cy) + 3, int(cx) + 4, int(cy) - 3)
         elif state == "cloud":
             p.setBrush(QColor("#5F6368"))
             p.drawEllipse(x, y, d, d)

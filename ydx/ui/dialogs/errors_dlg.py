@@ -20,7 +20,6 @@ from ydx.services.error_center import ErrorCenter
 SOURCE_KEYS = {
     "files": "errors.source.files",
     "transfers": "errors.source.transfers",
-    "sync": "errors.source.sync",
     "auth": "errors.source.auth",
 }
 
