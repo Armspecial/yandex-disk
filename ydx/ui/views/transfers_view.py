@@ -15,7 +15,7 @@ from PySide6.QtWidgets import (
 
 from ydx.core.models import TransferTask
 from ydx.services import i18n
-from ydx.services.fmt import human_size, human_speed
+from ydx.services.fmt import human_eta, human_size, human_speed
 from ydx.services.transfers import TransferEngine
 from ydx.ui.widgets import ElidedLabel, icon
 
@@ -88,9 +88,19 @@ class TaskRow(QWidget):
             self.bar.setRange(0, max(size, 1))
             self.bar.setValue(min(done, size))
             if task.state == "running" and size:
-                self.status_label.setText(
-                    i18n.tr("transfers.progress", done=human_size(done), total=human_size(size))
-                )
+                speed = task.speed_bps
+                if speed > 1 and done < size:
+                    self.status_label.setText(i18n.tr(
+                        "transfers.progress_speed",
+                        done=human_size(done), total=human_size(size),
+                        speed=human_speed(speed),
+                        eta=human_eta((size - done) / speed),
+                    ))
+                else:
+                    self.status_label.setText(
+                        i18n.tr("transfers.progress",
+                                done=human_size(done), total=human_size(size))
+                    )
             else:
                 self.status_label.setText(self._state_text(task))
         self._show_buttons(task.state)
