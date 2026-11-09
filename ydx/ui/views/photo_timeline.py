@@ -316,18 +316,43 @@ class PhotoTimelineView(QTableView):
             self.open_requested.emit(res)
 
     def keyPressEvent(self, event) -> None:  # noqa: N802 — Qt API
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+        key = event.key()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
             sel = self.selected_resources()
             if len(sel) == 1:
                 self.open_requested.emit(sel[0])
+                event.accept()
                 return
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+        elif key == Qt.Key.Key_Delete:
             sel = self.selected_resources()
             if sel:
                 self.delete_requested.emit(sel)
                 event.accept()
                 return
+        elif self._is_menu_key(event):
+            self._menu_for_current()
+            event.accept()
+            return
         super().keyPressEvent(event)
+
+    @staticmethod
+    def _is_menu_key(event) -> bool:
+        """Клавиша Menu или Shift+F10 — контекстное меню с клавиатуры."""
+        return event.key() == Qt.Key.Key_Menu or (
+            event.key() == Qt.Key.Key_F10
+            and event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        )
+
+    def _menu_for_current(self) -> None:
+        """Контекстное меню текущей плитки (без мыши)."""
+        index = self.currentIndex()
+        resource = index.data(ResourceRole) if index.isValid() else None
+        if resource is None:
+            return
+        sel = self.selected_resources()
+        resources = sel if resource in sel else [resource]
+        self.context_menu_requested.emit(
+            self.viewport().mapToGlobal(self.visualRect(index).center()), resources)
 
     # --- лассо мышью: QTableView выделяет протяжкой, но рамку не рисует -------
 

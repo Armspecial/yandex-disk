@@ -7,7 +7,7 @@
 from __future__ import annotations
 
 from PySide6.QtCore import Qt, Signal
-from PySide6.QtGui import QAction
+from PySide6.QtGui import QAction, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QHBoxLayout,
     QLabel,
@@ -85,6 +85,9 @@ class TrashPage(QWidget):
         self.view.open_requested.connect(self._open)
         self.view.context_menu_requested.connect(self._context_menu)
         self.view.delete_requested.connect(self._delete_forever)
+        self.view.back_requested.connect(self._go_back)
+        # Alt+Left — «Назад» и когда фокус не в списке (тулбар, кнопки)
+        QShortcut(QKeySequence("Alt+Left"), self, activated=self._go_back)
         self.model.modelReset.connect(self._update_states)
         self.model.rowsInserted.connect(lambda *_: self._update_states())
         self.model.layoutChanged.connect(self._update_states)   # пустой финал

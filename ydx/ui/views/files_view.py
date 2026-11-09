@@ -191,6 +191,7 @@ class FilesView(QListView):
     move_requested = Signal(list, str)           # [path], целевая папка
     files_dropped = Signal(list)                 # [QUrl] локальные файлы (загрузка)
     delete_requested = Signal(list)              # Delete → выделенные [Resource]
+    back_requested = Signal()                    # Backspace/Back → «Назад» (если подключено)
 
     def __init__(self, model, thumbs: ThumbService, parent=None) -> None:
         super().__init__(parent)
@@ -233,13 +234,47 @@ class FilesView(QListView):
         self.viewport().update()
 
     def keyPressEvent(self, event) -> None:      # noqa: N802 — Qt API
-        if event.key() in (Qt.Key.Key_Delete, Qt.Key.Key_Backspace):
+        key = event.key()
+        if key in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
+            selected = self.selected_resources()
+            if len(selected) == 1:
+                self.open_requested.emit(selected[0])
+                event.accept()
+                return
+        elif key == Qt.Key.Key_Delete:
             selected = self.selected_resources()
             if selected:
                 self.delete_requested.emit(selected)
                 event.accept()
                 return
+        elif key in (Qt.Key.Key_Backspace, Qt.Key.Key_Back):
+            self.back_requested.emit()
+            event.accept()
+            return
+        elif self._is_menu_key(event):
+            self._menu_for_current()
+            event.accept()
+            return
         super().keyPressEvent(event)
+
+    @staticmethod
+    def _is_menu_key(event) -> bool:
+        """Клавиша Menu или Shift+F10 — контекстное меню с клавиатуры."""
+        return event.key() == Qt.Key.Key_Menu or (
+            event.key() == Qt.Key.Key_F10
+            and event.modifiers() & Qt.KeyboardModifier.ShiftModifier
+        )
+
+    def _menu_for_current(self) -> None:
+        """Контекстное меню текущей ячейки (курсор мог не трогать мышь)."""
+        index = self.currentIndex()
+        resource = index.data(ResourceRole) if index.isValid() else None
+        if resource is None:
+            return
+        selected = self.selected_resources()
+        resources = selected if resource in selected else [resource]
+        self.context_menu_requested.emit(
+            self.viewport().mapToGlobal(self.visualRect(index).center()), resources)
 
     def set_vertical_scroll_mode(self) -> None:
         self.setVerticalScrollMode(QListView.ScrollMode.ScrollPerPixel)
@@ -266,14 +301,6 @@ class FilesView(QListView):
         res = index.data(ResourceRole)
         if res is not None:
             self.open_requested.emit(res)
-
-    def keyPressEvent(self, event) -> None:  # noqa: N802 — Qt API
-        if event.key() in (Qt.Key.Key_Return, Qt.Key.Key_Enter):
-            sel = self.selected_resources()
-            if len(sel) == 1:
-                self.open_requested.emit(sel[0])
-                return
-        super().keyPressEvent(event)
 
     def dragEnterEvent(self, event) -> None:  # noqa: N802 — Qt API
         if event.mimeData().hasUrls() or event.mimeData().hasFormat(MIME_INTERNAL):

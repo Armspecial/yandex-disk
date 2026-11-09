@@ -9,7 +9,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from PySide6.QtCore import QSortFilterProxyModel, Qt, Signal
-from PySide6.QtGui import QAction, QGuiApplication
+from PySide6.QtGui import QAction, QGuiApplication, QKeySequence, QShortcut
 from PySide6.QtWidgets import (
     QFileDialog,
     QLabel,
@@ -130,6 +130,7 @@ class FilesPage(QWidget):
         self.view.open_requested.connect(self._open)
         self.view.context_menu_requested.connect(self._context_menu)
         self.view.delete_requested.connect(self.delete)
+        self.view.back_requested.connect(self._go_back)
         self.view.move_requested.connect(self._move_to)
         self.view.files_dropped.connect(
             lambda urls: self._enqueue_uploads([u.toLocalFile() for u in urls])
@@ -158,6 +159,12 @@ class FilesPage(QWidget):
         if self._failed is not None:
             self._failed.changed.connect(lambda: self._sync_refresh_timer.start())
 
+        # --- клавиатура (кроме Enter/Delete/Menu в самом списке) -----------------
+        QShortcut(QKeySequence("Alt+Left"), self, activated=self._go_back)
+        QShortcut(QKeySequence("Alt+Up"), self, activated=self._go_up)
+        QShortcut(QKeySequence("F2"), self, activated=self._rename_selected)
+        QShortcut(QKeySequence("Ctrl+F"), self, activated=self._focus_search)
+
         i18n.register(self.retranslate)
 
     # --- навигация ------------------------------------------------------------
@@ -184,6 +191,24 @@ class FilesPage(QWidget):
             self.toolbar.breadcrumbs.set_path(prev)
             self.toolbar.set_back_enabled(bool(self._history))
             self._reload()
+
+    def _go_up(self) -> None:
+        """Alt+↑ — на родительскую папку (в корне диска — ничего)."""
+        if self._current.rstrip("/") == "disk:":
+            return
+        parent = self._current.rsplit("/", 1)[0]
+        self.load_path("disk:/" if parent == "disk:" else parent)
+
+    def _rename_selected(self) -> None:
+        """F2 — переименовать единственный выбранный файл/папку."""
+        selected = self.view.selected_resources()
+        if len(selected) == 1:
+            self.rename(selected[0])
+
+    def _focus_search(self) -> None:
+        """Ctrl+F — курсор в поиск по текущей папке."""
+        self.toolbar.search_edit.setFocus()
+        self.toolbar.search_edit.selectAll()
 
     def _reload(self) -> None:
         self.model.set_api(self._accounts.resources)
