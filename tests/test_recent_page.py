@@ -232,3 +232,97 @@ def test_context_menu_free_up_only_for_downloaded(qapp, tmp_path, monkeypatch):
     _Menu.captured.clear()
     page._context_menu(None, [_res("b.jpg", "disk:/b.jpg")])
     assert label not in [a.text() for a in _Menu.captured[-1].actions()]
+
+
+# --- «Открыть папку с файлом» -----------------------------------------------------
+
+
+def test_downloaded_local_paths_filters_and_dedupes(tmp_path):
+    from ydx.ui.views.files_page import downloaded_local_paths
+
+    gone = tmp_path / "gone.psd"
+    here = tmp_path / "here.psd"
+    here.write_bytes(b"data")
+    index = _Downloaded({
+        "disk:/gone.psd": str(gone),          # локальная копия уже удалена
+        "disk:/here.psd": str(here),
+        "disk:/dup.psd": str(here),           # тот же путь — без повторов
+    })
+    out = downloaded_local_paths(index, [
+        _res("gone.psd", "disk:/gone.psd"),
+        _res("here.psd", "disk:/here.psd"),
+        _res("dup.psd", "disk:/dup.psd"),
+        _res("new.psd", "disk:/new.psd"),     # не скачивали вовсе
+    ])
+    assert out == [str(here)]
+    assert downloaded_local_paths(None, []) == []
+
+
+def test_context_menu_open_containing_folder(qapp, tmp_path, monkeypatch):
+    from PySide6.QtWidgets import QMenu
+
+    class _Menu(QMenu):
+        captured: list[QMenu] = []
+
+        def exec(self, pos=None):
+            _Menu.captured.append(self)
+            return None
+
+    monkeypatch.setattr("ydx.ui.views.recent_page.QMenu", _Menu)
+
+    local = tmp_path / "sub" / "a.psd"
+    local.parent.mkdir()
+    local.write_bytes(b"data")
+    revealed = []
+    monkeypatch.setattr("ydx.services.openers.reveal_local_file", revealed.append)
+
+    label = i18n_tr("ctx.open_containing_folder")
+    downloaded = _Downloaded({"disk:/a.psd": str(local)})
+    page = _page(qapp, _Engine(), _Settings(str(tmp_path)), downloaded=downloaded)
+
+    # скачанный файл → пункт есть, показывает его в папке
+    page._context_menu(None, [_res("a.psd", "disk:/a.psd")])
+    act = next(a for a in _Menu.captured[-1].actions() if a.text() == label)
+    act.trigger()
+    assert revealed == [str(local)]
+
+    # локальной копии больше нет → пункта нет
+    local.unlink()
+    _Menu.captured.clear()
+    page._context_menu(None, [_res("a.psd", "disk:/a.psd")])
+    assert label not in [a.text() for a in _Menu.captured[-1].actions()]
+
+
+def test_reveal_local_file_falls_back_to_folder(qapp, tmp_path, monkeypatch):
+    """Файловый менеджер по DBus недоступен → открываем просто папку."""
+    from types import SimpleNamespace
+
+    import PySide6.QtDBus as dbus
+
+    from ydx.services import openers
+
+    local = tmp_path / "sub" / "a.psd"
+    local.parent.mkdir()
+    local.write_bytes(b"data")
+
+    def boom(*_a, **_k):
+        raise RuntimeError("no dbus")
+
+    monkeypatch.setattr(dbus, "QDBusInterface", boom)
+    opened = []
+    monkeypatch.setattr(
+        openers, "QDesktopServices",
+        SimpleNamespace(openUrl=lambda url: opened.append(url)),
+    )
+    monkeypatch.setattr(
+        openers, "QUrl", SimpleNamespace(fromLocalFile=lambda s: ("folder", s)),
+    )
+
+    openers.reveal_local_file(str(local))
+    assert opened == [("folder", str(local.parent))]
+
+    # файла нет — ничего не открываем
+    opened.clear()
+    local.unlink()
+    openers.reveal_local_file(str(local))
+    assert opened == []

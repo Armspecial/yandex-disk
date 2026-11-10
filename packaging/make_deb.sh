@@ -44,6 +44,7 @@ fi
     --add-data "ydx/resources:ydx/resources" \
     --hidden-import keyring.backends.SecretService \
     --hidden-import secretstorage \
+    --hidden-import PySide6.QtDBus \
     ydx/__main__.py
 
 # --- 3. Дерево пакета ---------------------------------------------------------

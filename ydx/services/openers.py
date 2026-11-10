@@ -125,6 +125,35 @@ def open_resource(
     )
 
 
+def reveal_local_file(path: str | Path) -> None:
+    """Показать скачанный файл в файловом менеджере.
+
+    Стандартный DBus-интерфейс FileManager1 открывает папку и выделяет
+    файл (Nautilus/Dolphin/Nemo). Нет шины/сервиса — просто открываем
+    папку, где файл лежит.
+    """
+    p = Path(path)
+    try:
+        if not p.exists():
+            return
+    except OSError:
+        return
+    try:
+        from PySide6.QtDBus import QDBusConnection, QDBusInterface, QDBusMessage
+
+        iface = QDBusInterface(
+            "org.freedesktop.FileManager1", "/org/freedesktop/FileManager1",
+            "org.freedesktop.FileManager1", QDBusConnection.sessionBus(),
+        )
+        reply = iface.call("ShowItems", [p.resolve().as_uri()], "")
+        if reply.type() == QDBusMessage.MessageType.ReplyMessage:
+            return
+    except Exception:   # noqa: BLE001 — DBus опционален, есть запасной путь
+        pass
+    folder = p.parent if p.is_file() else p
+    QDesktopServices.openUrl(QUrl.fromLocalFile(str(folder)))
+
+
 def unlim_download(unlim, resources: list[Resource], target_dir: Path,
                    progress=None, abort=None) -> dict:
     """Скачать элементы безлимита по прямым ссылкам (кукисессией).

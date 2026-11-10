@@ -65,6 +65,18 @@ def mirror_local_path(base, remote_path: str):
     return (Path(base) / rel) if rel else Path(base)
 
 
+def downloaded_local_paths(downloaded, resources: list[Resource]) -> list[str]:
+    """Локальные пути выбранных ресурсов, скачанных ранее (файл ещё на диске)."""
+    if downloaded is None:
+        return []
+    out: list[str] = []
+    for r in resources:
+        local = downloaded.local_for(r.path)
+        if local and local not in out and Path(local).exists():
+            out.append(local)
+    return out
+
+
 class FilesPage(QWidget):
     """Параметры: settings, accounts (для api/квоты), thumbs, engine (передачи)."""
 
@@ -611,12 +623,19 @@ class FilesPage(QWidget):
             act_download = QAction(i18n.tr("ctx.download"), menu)
             act_download.triggered.connect(lambda: self._download_selected(resources))
             menu.addAction(act_download)
-            if self._downloaded is not None and any(
-                self._downloaded.has(r.path) for r in resources
-            ):
-                act_free = QAction(i18n.tr("ctx.free_up"), menu)
-                act_free.triggered.connect(lambda: self._free_up(resources))
-                menu.addAction(act_free)
+        locals_ = downloaded_local_paths(self._downloaded, resources)
+        if locals_:
+            act_reveal = QAction(i18n.tr("ctx.open_containing_folder"), menu)
+            act_reveal.triggered.connect(
+                lambda: [openers.reveal_local_file(p) for p in locals_]
+            )
+            menu.addAction(act_reveal)
+        if self._downloaded is not None and any(
+            self._downloaded.has(r.path) for r in resources
+        ):
+            act_free = QAction(i18n.tr("ctx.free_up"), menu)
+            act_free.triggered.connect(lambda: self._free_up(resources))
+            menu.addAction(act_free)
 
         if single is not None and single.public_url:
             act_copy = QAction(i18n.tr("ctx.copy_link"), menu)

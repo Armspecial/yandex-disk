@@ -196,6 +196,15 @@ class RecentPage(QWidget):
             act_download = QAction(i18n.tr("ctx.download"), menu)
             act_download.triggered.connect(lambda: self._download_selected(resources))
             menu.addAction(act_download)
+        from ydx.ui.views.files_page import downloaded_local_paths
+
+        locals_ = downloaded_local_paths(self._downloaded, resources)
+        if locals_:
+            act_reveal = QAction(i18n.tr("ctx.open_containing_folder"), menu)
+            act_reveal.triggered.connect(
+                lambda: [openers.reveal_local_file(p) for p in locals_]
+            )
+            menu.addAction(act_reveal)
         if self._downloaded is not None and any(
             self._downloaded.has(r.path) for r in resources
         ):

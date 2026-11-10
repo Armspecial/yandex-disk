@@ -100,6 +100,7 @@
   "ctx.open": "Открыть",
   "ctx.open_in_browser": "Открыть в браузере",
   "ctx.download": "Скачать",
+  "ctx.open_containing_folder": "Открыть папку с файлом",
   "ctx.copy_link": "Скопировать ссылку",
   "ctx.unpublish": "Отключить ссылку",
   "ctx.rename": "Переименовать",
