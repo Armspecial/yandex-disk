@@ -123,6 +123,7 @@
   "transfers.state.cancelled": "Cancelled",
   "transfers.progress": "{done} of {total}",
   "transfers.progress_speed": "{done} of {total} · {speed} · {eta} left",
+  "transfers.conflict_replace": "File “{name}” already exists in the cloud. Replace it with the version from this computer?",
   "transfers.strip_active": "Transferring…",
   "transfers.clear_completed": "Clear completed",
   "transfers.empty": "No active transfers",

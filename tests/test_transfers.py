@@ -218,3 +218,58 @@ def test_retry_resets_speed(sync_engine, monkeypatch):
     assert task.state == "queued"    # 0 слотов — не запускается, проверяем сам сброс
     assert task.transferred == 0
     assert task.speed_bps == 0.0
+
+
+# --- конфликт загрузки: сигнал + вопрос «заменить?» -------------------------------
+
+
+def test_conflict_emits_conflict_signal_not_error(sync_engine):
+    make, tmp = sync_engine
+    engine, res = make({"a.txt": b"data"})
+    res.conflict_paths.add("disk:/a.txt")
+    conflicts, errors = [], []
+    engine.task_conflict.connect(conflicts.append)
+    engine.task_error.connect(errors.append)
+
+    engine.enqueue_upload([str(tmp / "a.txt")], "disk:/")
+    assert engine.tasks[0].state == "conflict"
+    assert len(conflicts) == 1 and not errors   # не ошибка — решение за юзером
+
+
+def test_resolve_upload_conflict_yes_overwrites(sync_engine, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from ydx.ui.main_window import resolve_upload_conflict
+
+    make, tmp = sync_engine
+    engine, res = make({"a.txt": b"data"})
+    res.conflict_paths.add("disk:/a.txt")
+    engine.enqueue_upload([str(tmp / "a.txt")], "disk:/")
+    task = engine.tasks[0]
+    assert task.state == "conflict"
+
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda *a, **k: QMessageBox.StandardButton.Yes,
+    )
+    resolve_upload_conflict(task, engine, None)
+    assert engine.tasks[0].state == "done"      # перезалит с overwrite=True
+
+
+def test_resolve_upload_conflict_no_cancels(sync_engine, monkeypatch):
+    from PySide6.QtWidgets import QMessageBox
+
+    from ydx.ui.main_window import resolve_upload_conflict
+
+    make, tmp = sync_engine
+    engine, res = make({"a.txt": b"data"})
+    res.conflict_paths.add("disk:/a.txt")
+    engine.enqueue_upload([str(tmp / "a.txt")], "disk:/")
+    task = engine.tasks[0]
+
+    monkeypatch.setattr(
+        QMessageBox, "question",
+        lambda *a, **k: QMessageBox.StandardButton.No,
+    )
+    resolve_upload_conflict(task, engine, None)
+    assert engine.tasks[0].state == "cancelled"  # облачный файл не тронут

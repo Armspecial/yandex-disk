@@ -29,6 +29,26 @@ from ydx.ui.widgets import make_avatar
 PLACEHOLDER_PAGES = ("files", "recent", "photos", "shares", "transfers", "trash")
 
 
+def resolve_upload_conflict(task, engine, parent=None) -> None:
+    """Загрузка без overwrite столкнулась с существующим файлом в облаке.
+
+    Спрашиваем: заменить (retry с overwrite=True) или отменить.
+    """
+    from PySide6.QtWidgets import QMessageBox
+
+    name = task.remote_path.rsplit("/", 1)[-1]
+    answer = QMessageBox.question(
+        parent, i18n.tr("app.title"),
+        i18n.tr("transfers.conflict_replace", name=name),
+        QMessageBox.StandardButton.Yes | QMessageBox.StandardButton.No,
+        QMessageBox.StandardButton.Yes,
+    )
+    if answer == QMessageBox.StandardButton.Yes:
+        engine.retry(task.id, overwrite=True)
+    else:
+        engine.cancel(task.id)
+
+
 class MainWindow(QMainWindow):
     def __init__(self, settings: AppSettings, accounts: AccountManager) -> None:
         super().__init__()
@@ -170,6 +190,10 @@ class MainWindow(QMainWindow):
 
         # завершённые скачивания → значок «доступно офлайн»
         self.engine.task_done.connect(self._on_task_done)
+        # загрузка конфликтует с существующим файлом → спросить «заменить?»
+        self.engine.task_conflict.connect(
+            lambda t: resolve_upload_conflict(t, self.engine, self)
+        )
         self.engine.task_error.connect(
             lambda t: (
                 self.error_center.report(

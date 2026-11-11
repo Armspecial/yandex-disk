@@ -50,7 +50,8 @@ class TransferEngine(QObject):
     tasks_changed = Signal()         # состав очереди изменился
     batch_done = Signal()            # завершилась пачка (обновить листинг/квоту)
     task_done = Signal(object)       # TransferTask — успешное завершение
-    task_error = Signal(object)      # TransferTask — ошибка/конфликт/отмена
+    task_error = Signal(object)      # TransferTask — ошибка/отмена
+    task_conflict = Signal(object)   # TransferTask — в облаке уже есть такой файл
 
     def __init__(self, accounts) -> None:   # AccountManager
         super().__init__()
@@ -188,7 +189,8 @@ class TransferEngine(QObject):
 
     def cancel(self, task_id: int) -> None:
         for t in self._tasks:
-            if t.id == task_id and t.state in ("queued", "running", "paused"):
+            # conflict — терминальное: отмена убирает вопрос (юзер отказался заменять)
+            if t.id == task_id and t.state in ("queued", "running", "paused", "conflict"):
                 t.state = "cancelled"
                 t.error = None
                 self.task_updated.emit(task_id)
@@ -308,7 +310,9 @@ class TransferEngine(QObject):
         with self._lock:
             self._active.discard(task.id)
         self.task_updated.emit(task.id)
-        if task.state in ("error", "conflict"):
+        if task.state == "conflict":
+            self.task_conflict.emit(task)   # решение принимает пользователь
+        elif task.state == "error":
             self.task_error.emit(task)
         self._after_step()
 

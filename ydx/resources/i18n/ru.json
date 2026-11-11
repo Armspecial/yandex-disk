@@ -123,6 +123,7 @@
   "transfers.state.cancelled": "Отменено",
   "transfers.progress": "{done} из {total}",
   "transfers.progress_speed": "{done} из {total} · {speed} · осталось {eta}",
+  "transfers.conflict_replace": "Файл «{name}» уже есть в облаке. Заменить его версией с этого компьютера?",
   "transfers.strip_active": "Идёт передача…",
   "transfers.clear_completed": "Очистить завершённые",
   "transfers.empty": "Нет активных передач",
